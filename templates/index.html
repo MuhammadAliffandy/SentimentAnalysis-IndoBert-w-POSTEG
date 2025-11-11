@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>J E M A R I</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #ffff;
+      --card-bg-color: #ffffff;
+      --text-color: #212529;
+      --subtle-text-color: #6c757d;
+      --border-color: #dee2e6;
+      --primary-color: #007bff;
+      --primary-hover-color: #0056b3;
+      --positive-color: #28a745;
+      --negative-color: #dc3545;
+      --neutral-color: #6c757d;
+      --shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+    }
+    body, h1, h2, h3, h4, h5, h6, label, button, select, textarea {
+      font-family: 'Montserrat', 'Inter', sans-serif;
+    }
+
+    body.dark-mode {
+      --bg-color: #121212;
+      --card-bg-color: #232323;
+      --text-color: #e9ecef;
+      --subtle-text-color: #adb5bd;
+      --border-color: #495057;
+      --primary-color: #3b82f6;
+      --primary-hover-color: #2563eb;
+    }
+
+    * { 
+      box-sizing: border-box; 
+      margin: 0; 
+      padding: 0; 
+    }
+    
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      line-height: 1.6;
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    #home {
+      width: 100%;
+      height: 60vh;
+      display : flex;
+      align-items: center;
+      background-color: black;
+      justify-content: center;
+      color: white;
+      text-align: center;
+    }
+    
+    #predict{
+      width: 100%;
+      height: 80vh;
+
+    }
+
+
+    #analysis , #predict{
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #analysis{
+
+      width: 100%;
+      max-height: 100vh;
+
+      overflow-y: auto; 
+      align-items: start;
+      padding: 40px 0;
+    }
+
+    #home h1 {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    #home p {
+      font-size: 18px;
+      color: var(--subtle-text-color);
+    }
+
+    .nav-links {
+      list-style: none;
+      display: flex;
+      gap: 80px;
+    }
+    .nav-links  li a {
+      color: white;
+      text-decoration: none;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+
+    main { 
+      max-width: 100vw;   
+      display: flex; 
+      flex-direction: column; 
+     
+    }
+    
+    header { 
+      display: flex; 
+      justify-content: space-between; 
+      align-items: center; 
+      background-color: black; 
+      padding: 10px 10px; 
+      color: white;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    }
+
+    .container { 
+      display: flex; 
+      background-color: black; 
+      align-items: center; 
+      gap: 20px; 
+      padding: 40px; 
+      height: 80%;
+      margin: 0 40px;
+      border-radius: 20px;
+      color: white;
+    }
+
+    .container .left-card {
+      color: white; 
+    }
+
+    h1 { 
+      font-size: 28px; 
+    }
+    .card { 
+      background-color: var(--card-bg-color); 
+      border: 1px solid var(--border-color); 
+      border-radius: 12px; 
+      width: 80%;
+      padding: 24px; 
+      box-shadow: var(--shadow); 
+      transition: background-color 0.3s, 
+      border-color 0.3s; 
+    }
+    
+    .card .title {
+      margin-bottom: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+    }
+
+    label { font-weight: 500; margin-bottom: 8px; display: block; }
+    textarea, select { width: 100%; padding: 12px; font-size: 15px; font-family: inherit; border: 1px solid var(--border-color); border-radius: 8px; background-color: var(--bg-color); color: var(--text-color); margin-bottom: 16px; }
+    textarea { height: 120px; resize: vertical; }
+    button { padding: 12px 20px; font-size: 16px; font-weight: 500; font-family: inherit; cursor: pointer; border: none; border-radius: 8px; background-color: #232323; color: white; transition: background-color 0.2s; }
+    button:hover { background-color: #000; }
+    button:disabled { background-color: var(--subtle-text-color); cursor: not-allowed; }
+    .result { margin-top: 20px; padding: 16px; border-radius: 8px; background-color: var(--bg-color); border: 1px solid var(--border-color); }
+    .sentiment-badge { padding: 4px 10px; border-radius: 20px; font-size: 14px; font-weight: 500; color: white; text-transform: capitalize; }
+    .sentiment-positif { background-color: var(--positive-color); }
+    .sentiment-negatif { background-color: var(--negative-color); }
+    .sentiment-netral { background-color: var(--neutral-color); }
+    .stats-summary { display: flex; flex-wrap: wrap; gap: 20px; margin: 16px 0; font-weight: 500; }
+    
+    /* --- CSS BARU UNTUK KLASTER --- */
+    .review-clusters {
+      display: block;
+    }
+
+    .cluster-column {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    
+    .cluster-column h3 {
+        margin-bottom: 8px;
+    }
+
+    .review-item {
+      padding: 12px;
+      border-radius: 8px;
+      background-color: var(--card-bg-color);
+      border: 1px solid var(--border-color);
+    }
+    
+    .review-item p {
+      color: var(--subtle-text-color);
+      margin-top: 8px;
+      font-size: 14px;
+    }
+
+    /* Media query untuk membuat responsif di layar kecil */
+    @media (max-width: 800px) {
+      .review-clusters {
+        grid-template-columns: 1fr; /* 1 kolom di mobile */
+      }
+      main {
+        max-width: 100%;
+        padding: 10px;
+      }
+    }
+    /* --- END OF CSS BARU --- */
+
+    /* ... (CSS untuk dark mode toggle tidak berubah) ... */
+    .theme-switch-wrapper { 
+      display: flex; 
+      align-items: center; 
+      gap: 8px; 
+    }
+    .theme-switch { display: inline-block; height: 24px; position: relative; width: 48px; }
+    .theme-switch input { display:none; }
+    .slider { background-color: #d8d8d8; bottom: 0; cursor: pointer; left: 0; position: absolute; right: 0; top: 0; transition: .4s; }
+    .slider:before { background-color: #fff; bottom: 4px; content: ""; height: 16px; left: 4px; position: absolute; transition: .4s; width: 16px; }
+    input:checked + .slider { background-color: var(--primary-color); }
+    input:checked + .slider:before { transform: translateX(24px); }
+    .slider.round { border-radius: 24px; }
+    .slider.round:before { border-radius: 50%; }
+
+    table td, table th {
+      white-space: normal !important;
+      overflow: visible !important;
+      text-overflow: unset !important;
+      word-break: break-word;
+      vertical-align: top;
+      padding: 12px 12px !important;
+      font-size: 1rem;
+    }
+    table th {
+      min-width: 48px;
+      font-size: 1.05rem;
+      text-align: left;
+    }
+    table td:first-child {
+      min-width: 40px;
+      max-width: 60px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <main>
+    <header>
+      <h1>J E M A R I</h1>
+
+
+
+      <div class="theme-switch-wrapper">
+        <span id="theme-label">Light Mode</span>
+        <label class="theme-switch">
+          <input type="checkbox" id="theme-toggle">
+          <span class="slider round"></span>
+        </label>
+      </div>
+    </header>
+
+    <section id="home" >
+      <div>
+        <h1 id="typewriter">Sistem Ekstraksi Keluhan Tempat Wisata Jember</h1>
+        <p>Menganalisis ulasan pengunjung tempat wisata di Jember untuk mengekstraksi keluhan utama menggunakan model IndoBERT dan POS Tagging.</p>
+
+      </div>
+    </section>
+
+    <section id="analysis" >
+        <div class="card">
+          <div class="title">
+              <h2 >Ekstraksi Keluhan Ulasan Negatif</h2>
+              <p style="color:var(--subtle-text-color); margin-bottom: 20px;">
+                Pilih destinasi wisata untuk melihat daftar keluhan yang terdeteksi dari ulasan negatif pengunjung.
+              </p>
+          </div>
+
+          <label for="wisataSelect">Pilih Destinasi Wisata:</label>
+          <select id="wisataSelect"></select>
+          <button id="showExtractBtn" style="margin-left:16px;">Tampilkan Ekstraksi Keluhan</button>
+          <div id="wisataOutput" class="result" style="display:none;"></div>
+        </div>
+    </section>
+
+  </main>
+
+  <script>
+    // ... (Logika Dark Mode tidak berubah) ...
+    const themeLabel = document.getElementById('theme-label');
+    const themeToggle = document.getElementById('theme-toggle');
+    const currentTheme = localStorage.getItem('theme');
+    if (currentTheme === 'dark') {
+      document.body.classList.add('dark-mode');
+      themeToggle.checked = false;
+      themeLabel.textContent = 'Night Mode';
+    } else {
+      document.body.classList.remove('dark-mode');
+      themeToggle.checked = true;
+      themeLabel.textContent = 'Light Mode';
+    }
+    themeToggle.addEventListener('change', () => {
+      if (themeToggle.checked) {
+        document.body.classList.remove('dark-mode');
+        localStorage.setItem('theme', 'light');
+        themeLabel.textContent = 'Light Mode';
+      } else {
+        document.body.classList.add('dark-mode');
+        localStorage.setItem('theme', 'dark');
+        themeLabel.textContent = 'Night Mode';
+      }
+    });
+
+    // --- Dropdown wisata (FUNGSI UTAMA YANG DIMODIFIKASI) ---
+    const wisataSelect = document.getElementById('wisataSelect');
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const wisataOutput = document.getElementById('wisataOutput');
+
+    async function loadWisataList() {
+      const resp = await fetch('/wisata_list');
+      const data = await resp.json();
+      wisataSelect.innerHTML = '<option value="" disabled selected>-- Pilih salah satu --</option>';
+      data.wisata.forEach(w => {
+        const opt = document.createElement('option');
+        opt.value = w;
+        opt.textContent = w;
+        wisataSelect.appendChild(opt);
+      });
+    }
+    loadWisataList();
+
+    // --- FUNGSI TAMPILAN HASIL YANG BARU ---
+    function displayWisataResults(data) {
+        wisataOutput.innerHTML = '';
+        wisataOutput.style.display = 'block';
+        // Table keluhan ulasan negatif
+        const table = document.createElement('table');
+        table.style.width = '100%';
+        table.style.borderCollapse = 'collapse';
+        table.style.marginTop = '18px';
+        table.innerHTML = `
+          <thead style="background:linear-gradient(90deg,#232323 0%,#007bff 100%);color:#fff;">
+            <tr>
+              <th style="padding:12px 8px;border-radius:8px 0 0 8px;">No</th>
+              <th style="padding:12px 8px;">Ulasan Negatif</th>
+              <th style="padding:12px 8px;border-radius:0 8px 8px 0;">Fokus Keluhan</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.complaints && data.complaints.length > 0 ?
+              data.complaints.map((c,i) => `
+                <tr style="background:${i%2===0?'#f8f9fa':'#e9ecef'};">
+                  <td style="padding:10px 8px;text-align:center;font-weight:600;">${c.No}</td>
+                  <td style="padding:10px 8px;">${c["Ulasan Negatif"]}</td>
+                  <td style="padding:10px 8px;color:#dc3545;font-weight:600;">${c.Keluhan}</td>
+                </tr>
+              `).join('') :
+              `<tr><td colspan="3" style="padding:12px;text-align:center;color:var(--subtle-text-color);">Tidak ada keluhan terdeteksi.</td></tr>`
+            }
+          </tbody>
+        `;
+        // Judul dan ringkasan
+        const header = document.createElement('h3');
+        header.textContent = `Daftar Keluhan Negatif: ${data.wisata}`;
+        header.style.marginBottom = '18px';
+        header.style.fontWeight = '700';
+        header.style.color = '#007bff';
+        const summary = document.createElement('div');
+        summary.className = 'stats-summary';
+        summary.innerHTML = `
+            <span>Total Review: <strong>${data.total}</strong></span>
+            <span style="color:var(--negative-color)">Negatif: <strong>${data.negatif}</strong></span>
+        `;
+        wisataOutput.append(header, summary, table);
+    }
+
+    let lastWisata = null;
+    let lastData = null;
+    const showExtractBtn = document.getElementById('showExtractBtn');
+    showExtractBtn.addEventListener('click', async () => {
+      const wisata = wisataSelect.value;
+      if (!wisata) return alert('Pilih destinasi wisata dulu!');
+      wisataOutput.style.display = 'block';
+      wisataOutput.innerHTML = '<div style="text-align:center;padding:32px 0;font-size:1.2rem;color:var(--primary-color);font-weight:600;"><span class="loader" style="display:inline-block;width:28px;height:28px;border:4px solid #007bff;border-top:4px solid #fff;border-radius:50%;animation:spin 1s linear infinite;vertical-align:middle;margin-right:12px;"></span>Memproses ekstraksi keluhan...</div>';
+      try {
+        if (lastWisata === wisata && lastData) {
+          setTimeout(() => displayWisataResults(lastData), 500);
+          return;
+        }
+        const resp = await fetch('/analisis_wisata', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ wisata })
+        });
+        const data = await resp.json();
+        if (!resp.ok || data.error) {
+          wisataOutput.innerHTML = `<b>Error:</b> ${data.error || 'Gagal melakukan analisis'}`;
+        } else {
+          lastWisata = wisata;
+          lastData = data;
+          setTimeout(() => displayWisataResults(data), 500);
+        }
+      } catch (err) {
+        wisataOutput.innerHTML = '<b>Network error:</b> ' + String(err);
+      }
+    });
+
+    // Loader CSS
+    const style = document.createElement('style');
+    style.innerHTML = `@keyframes spin {0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}`;
+    document.head.appendChild(style);
+
+    wisataSelect.addEventListener('change', async () => {
+      const wisata = wisataSelect.value;
+      if (!wisata) return;
+      wisataOutput.style.display = 'none';
+      wisataOutput.innerHTML = '';
+      try {
+        const resp = await fetch('/analisis_wisata', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ wisata })
+        });
+        const data = await resp.json();
+        if (!resp.ok || data.error) {
+          wisataOutput.innerHTML = `<b>Error:</b> ${data.error || 'Gagal melakukan analisis'}`;
+          wisataOutput.style.display = 'block';
+        } else {
+          displayWisataResults(data);
+        }
+      } catch (err) {
+        wisataOutput.innerHTML = '<b>Network error:</b> ' + String(err);
+        wisataOutput.style.display = 'block';
+      }
+    });
+
+    // Typewriter effect
+    function typeWriterEffect(element, text, speed=32) {
+      element.textContent = '';
+      let i = 0;
+      function typing() {
+        if (i < text.length) {
+          element.textContent += text.charAt(i);
+          i++;
+          setTimeout(typing, speed);
+        }
+      }
+      typing();
+    }
+    window.addEventListener('DOMContentLoaded', () => {
+      const typewriter = document.getElementById('typewriter');
+      if(typewriter) {
+        typeWriterEffect(typewriter, 'Sistem Ekstraksi Keluhan Tempat Wisata Jember', 32);
+      }
+    });
+  </script>
+</body>
+</html>
