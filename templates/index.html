@@ -296,59 +296,94 @@
   </main>
 
   <script>
-    // ... (Logika Dark Mode tidak berubah) ...
-    const themeLabel = document.getElementById('theme-label');
-    const themeToggle = document.getElementById('theme-toggle');
+    // ================================================================
+    // DARK MODE TOGGLE LOGIC
+    // Ambil elemen DOM untuk dark mode
+    // ================================================================
+    const themeLabel = document.getElementById('theme-label');  // Label text "Light Mode" / "Night Mode"
+    const themeToggle = document.getElementById('theme-toggle');  // Checkbox input untuk toggle
+    
+    // Ambil tema yang tersimpan dari localStorage
     const currentTheme = localStorage.getItem('theme');
+    
+    // Jika sebelumnya dark mode, apply dark-mode class dan uncheck toggle
     if (currentTheme === 'dark') {
-      document.body.classList.add('dark-mode');
-      themeToggle.checked = false;
-      themeLabel.textContent = 'Night Mode';
+      document.body.classList.add('dark-mode');  // Tambah class dark-mode ke body
+      themeToggle.checked = false;  // Uncheck checkbox (dark mode = unchecked)
+      themeLabel.textContent = 'Night Mode';  // Update label text
     } else {
-      document.body.classList.remove('dark-mode');
-      themeToggle.checked = true;
-      themeLabel.textContent = 'Light Mode';
+      // Otherwise light mode (default)
+      document.body.classList.remove('dark-mode');  // Remove class jika ada
+      themeToggle.checked = true;  // Check checkbox (light mode = checked)
+      themeLabel.textContent = 'Light Mode';  // Update label text
     }
+    
+    // Event listener: ketika toggle checkbox diubah
     themeToggle.addEventListener('change', () => {
       if (themeToggle.checked) {
-        document.body.classList.remove('dark-mode');
-        localStorage.setItem('theme', 'light');
-        themeLabel.textContent = 'Light Mode';
+        // Jika checkbox di-check: Light Mode
+        document.body.classList.remove('dark-mode');  // Hapus class dark-mode
+        localStorage.setItem('theme', 'light');  // Simpan preferensi ke localStorage
+        themeLabel.textContent = 'Light Mode';  // Update label
       } else {
-        document.body.classList.add('dark-mode');
-        localStorage.setItem('theme', 'dark');
-        themeLabel.textContent = 'Night Mode';
+        // Jika checkbox unchecked: Dark Mode
+        document.body.classList.add('dark-mode');  // Tambah class dark-mode
+        localStorage.setItem('theme', 'dark');  // Simpan preferensi ke localStorage
+        themeLabel.textContent = 'Night Mode';  // Update label
       }
     });
 
-    // --- Dropdown wisata (FUNGSI UTAMA YANG DIMODIFIKASI) ---
-    const wisataSelect = document.getElementById('wisataSelect');
-    const analyzeBtn = document.getElementById('analyzeBtn');
-    const wisataOutput = document.getElementById('wisataOutput');
+    // ================================================================
+    // WISATA DROPDOWN - LOAD LIST DARI API
+    // ================================================================
+    const wisataSelect = document.getElementById('wisataSelect');  // Element select dropdown
+    const analyzeBtn = document.getElementById('analyzeBtn');  // (Unused di HTML saat ini)
+    const wisataOutput = document.getElementById('wisataOutput');  // Element untuk menampilkan hasil
 
+    // Fungsi: Load daftar wisata dari endpoint /wisata_list
     async function loadWisataList() {
+      // Fetch GET request ke /wisata_list
       const resp = await fetch('/wisata_list');
+      // Parse JSON response
       const data = await resp.json();
+      
+      // Clear dropdown dan tambah placeholder option
       wisataSelect.innerHTML = '<option value="" disabled selected>-- Pilih salah satu --</option>';
+      
+      // Loop setiap wisata dari array dan buat option element
       data.wisata.forEach(w => {
-        const opt = document.createElement('option');
-        opt.value = w;
-        opt.textContent = w;
-        wisataSelect.appendChild(opt);
+        const opt = document.createElement('option');  // Buat elemen <option>
+        opt.value = w;  // Set value attribute
+        opt.textContent = w;  // Set teks yang ditampilkan
+        wisataSelect.appendChild(opt);  // Tambahkan ke dropdown
       });
     }
+    
+    // Jalankan loadWisataList saat script pertama kali load
     loadWisataList();
 
-    // --- FUNGSI TAMPILAN HASIL YANG BARU ---
+    // ================================================================
+    // DISPLAY WISATA RESULTS
+    // Fungsi: Render hasil analisis (keluhan, statistik) ke HTML
+    // ================================================================
     function displayWisataResults(data) {
+        // Clear isi output container sebelumnya
         wisataOutput.innerHTML = '';
+        // Tampilkan output container
         wisataOutput.style.display = 'block';
-        // Table keluhan ulasan negatif
+        
+        // ================================================================
+        // BUILD TABLE (Daftar Keluhan dengan styling)
+        // ================================================================
+        // Buat elemen table
         const table = document.createElement('table');
         table.style.width = '100%';
-        table.style.borderCollapse = 'collapse';
-        table.style.marginTop = '18px';
+        table.style.borderCollapse = 'collapse';  // Hilangkan space antar cell
+        table.style.marginTop = '18px';  // Margin atas dari header
+        
+        // Isi table dengan HTML string (header + body rows)
         table.innerHTML = `
+          <!-- TABLE HEADER (Baris judul dengan gradient background) -->
           <thead style="background:linear-gradient(90deg,#232323 0%,#007bff 100%);color:#fff;">
             <tr>
               <th style="padding:12px 8px;border-radius:8px 0 0 8px;">No</th>
@@ -356,110 +391,217 @@
               <th style="padding:12px 8px;border-radius:0 8px 8px 0;">Fokus Keluhan</th>
             </tr>
           </thead>
+          <!-- TABLE BODY (Data rows - generate dari array complaints) -->
           <tbody>
             ${data.complaints && data.complaints.length > 0 ?
+              // Jika ada keluhan dalam array, map setiap item menjadi <tr>
               data.complaints.map((c,i) => `
+                <!-- Alternate background color untuk setiap row (striped) -->
                 <tr style="background:${i%2===0?'#f8f9fa':'#e9ecef'};">
                   <td style="padding:10px 8px;text-align:center;font-weight:600;">${c.No}</td>
                   <td style="padding:10px 8px;">${c["Ulasan Negatif"]}</td>
+                  <!-- Warna keluhan merah (negative-color) -->
                   <td style="padding:10px 8px;color:#dc3545;font-weight:600;">${c.Keluhan}</td>
                 </tr>
               `).join('') :
+              // Jika tidak ada keluhan, tampilkan pesan
               `<tr><td colspan="3" style="padding:12px;text-align:center;color:var(--subtle-text-color);">Tidak ada keluhan terdeteksi.</td></tr>`
             }
           </tbody>
         `;
-        // Judul dan ringkasan
+        
+        // ================================================================
+        // BUILD HEADER (Judul Hasil Analisis)
+        // ================================================================
+        // Buat elemen h3 untuk judul hasil
         const header = document.createElement('h3');
-        header.textContent = `Daftar Keluhan Negatif: ${data.wisata}`;
+        header.textContent = `Daftar Keluhan Negatif: ${data.wisata}`;  // Judul dengan nama wisata
         header.style.marginBottom = '18px';
-        header.style.fontWeight = '700';
-        header.style.color = '#007bff';
+        header.style.fontWeight = '700';  // Bold
+        header.style.color = '#007bff';  // Warna biru
+        
+        // ================================================================
+        // BUILD SUMMARY (Ringkasan Statistik Sentimen)
+        // ================================================================
+        // Buat container untuk statistik
         const summary = document.createElement('div');
-        summary.className = 'stats-summary';
+        summary.className = 'stats-summary';  // Gunakan CSS class dari style
+        // Isi summary dengan statistik
         summary.innerHTML = `
+            <!-- Total jumlah review -->
             <span>Total Review: <strong>${data.total}</strong></span>
+            <!-- Jumlah review negatif (warna merah) -->
             <span style="color:var(--negative-color)">Negatif: <strong>${data.negatif}</strong></span>
         `;
+        
+        // Append semua elemen ke wisataOutput (header, summary, table)
         wisataOutput.append(header, summary, table);
     }
 
-    let lastWisata = null;
-    let lastData = null;
+    // ================================================================
+    // BUTTON EVENT: "Tampilkan Ekstraksi Keluhan"
+    // Trigger analisis ketika tombol diklik
+    // ================================================================
+    let lastWisata = null;  // Cache: nama wisata yang sudah dianalisis
+    let lastData = null;    // Cache: hasil analisis yang sudah diterima
+    
+    // Ambil elemen button
     const showExtractBtn = document.getElementById('showExtractBtn');
+    
+    // Event listener: ketika tombol diklik
     showExtractBtn.addEventListener('click', async () => {
+      // Ambil nilai wisata dari dropdown
       const wisata = wisataSelect.value;
+      
+      // Validasi: pastikan wisata dipilih (value tidak kosong)
       if (!wisata) return alert('Pilih destinasi wisata dulu!');
+      
+      // Tampilkan output container dengan loading spinner
       wisataOutput.style.display = 'block';
-      wisataOutput.innerHTML = '<div style="text-align:center;padding:32px 0;font-size:1.2rem;color:var(--primary-color);font-weight:600;"><span class="loader" style="display:inline-block;width:28px;height:28px;border:4px solid #007bff;border-top:4px solid #fff;border-radius:50%;animation:spin 1s linear infinite;vertical-align:middle;margin-right:12px;"></span>Memproses ekstraksi keluhan...</div>';
+      wisataOutput.innerHTML = `
+        <div style="text-align:center;padding:32px 0;font-size:1.2rem;color:var(--primary-color);font-weight:600;">
+          <!-- Spinner animasi (CSS animation: spin) -->
+          <span class="loader" style="display:inline-block;width:28px;height:28px;border:4px solid #007bff;border-top:4px solid #fff;border-radius:50%;animation:spin 1s linear infinite;vertical-align:middle;margin-right:12px;"></span>
+          <!-- Loading text -->
+          Memproses ekstraksi keluhan...
+        </div>
+      `;
+      
       try {
+        // ================================================================
+        // CACHE CHECK
+        // Jika wisata yang sama sudah dianalisis sebelumnya, gunakan cache
+        // ================================================================
         if (lastWisata === wisata && lastData) {
-          setTimeout(() => displayWisataResults(lastData), 500);
-          return;
+          // Gunakan data cache (tidak perlu fetch lagi)
+          setTimeout(() => displayWisataResults(lastData), 500);  // Delay 500ms untuk UX
+          return;  // Exit fungsi (jangan fetch)
         }
+        
+        // ================================================================
+        // FETCH ANALYSIS
+        // Kirim POST request ke endpoint /analisis_wisata
+        // ================================================================
         const resp = await fetch('/analisis_wisata', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ wisata })
+          method: 'POST',  // HTTP method POST
+          headers: { 'Content-Type': 'application/json' },  // Header: content type JSON
+          body: JSON.stringify({ wisata })  // Body: JSON object dengan nama wisata
         });
+        
+        // Parse JSON response dari server
         const data = await resp.json();
+        
+        // ================================================================
+        // ERROR HANDLING
+        // Check apakah response OK (status 200) atau ada error field
+        // ================================================================
         if (!resp.ok || data.error) {
+          // Tampilkan pesan error
           wisataOutput.innerHTML = `<b>Error:</b> ${data.error || 'Gagal melakukan analisis'}`;
         } else {
-          lastWisata = wisata;
-          lastData = data;
+          // Sukses: simpan ke cache dan display hasil
+          lastWisata = wisata;  // Simpan nama wisata ke cache
+          lastData = data;  // Simpan data hasil ke cache
+          
+          // Display hasil dengan delay (untuk UX yang smooth)
           setTimeout(() => displayWisataResults(data), 500);
         }
       } catch (err) {
+        // Catch network error (fetch failed, server down, dll)
         wisataOutput.innerHTML = '<b>Network error:</b> ' + String(err);
       }
     });
 
-    // Loader CSS
-    const style = document.createElement('style');
+    // ================================================================
+    // CSS ANIMATION - LOADER SPINNER
+    // Tambahkan @keyframes spin untuk animasi loader
+    // ================================================================
+    const style = document.createElement('style');  // Buat elemen <style>
+    // Define animasi spin: rotate 0 derajat -> 360 derajat
     style.innerHTML = `@keyframes spin {0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}`;
+    // Tambahkan ke <head>
     document.head.appendChild(style);
 
+    // ================================================================
+    // DROPDOWN CHANGE EVENT
+    // Jalankan analisis otomatis ketika dropdown diubah
+    // ================================================================
     wisataSelect.addEventListener('change', async () => {
+      // Ambil nilai wisata yang dipilih di dropdown
       const wisata = wisataSelect.value;
+      
+      // Jika tidak ada yang dipilih (kosong), return / skip
       if (!wisata) return;
+      
+      // Clear output sementara (sembunyikan dan clear isi)
       wisataOutput.style.display = 'none';
       wisataOutput.innerHTML = '';
+      
       try {
+        // Fetch ke /analisis_wisata dengan nama wisata
         const resp = await fetch('/analisis_wisata', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ wisata })
         });
+        
+        // Parse JSON response
         const data = await resp.json();
+        
+        // ================================================================
+        // DISPLAY RESULT
+        // Check apakah response OK atau ada error
+        // ================================================================
         if (!resp.ok || data.error) {
+          // Jika error, tampilkan pesan error
           wisataOutput.innerHTML = `<b>Error:</b> ${data.error || 'Gagal melakukan analisis'}`;
-          wisataOutput.style.display = 'block';
+          wisataOutput.style.display = 'block';  // Tampilkan error message
         } else {
+          // Jika sukses, display hasil analisis dengan tabel dan statistik
           displayWisataResults(data);
         }
       } catch (err) {
+        // Catch network error
         wisataOutput.innerHTML = '<b>Network error:</b> ' + String(err);
-        wisataOutput.style.display = 'block';
+        wisataOutput.style.display = 'block';  // Tampilkan error message
       }
     });
 
-    // Typewriter effect
+    // ================================================================
+    // TYPEWRITER EFFECT
+    // Fungsi: Animasi mengetik untuk title hero section
+    // ================================================================
     function typeWriterEffect(element, text, speed=32) {
+      // Clear elemen text sebelumnya
       element.textContent = '';
+      // Counter: posisi karakter saat ini
       let i = 0;
+      
+      // Recursive function: ketik satu karakter per iterasi
       function typing() {
+        // Jika masih ada karakter yang belum diketik
         if (i < text.length) {
+          // Append karakter berikutnya ke element
           element.textContent += text.charAt(i);
+          // Increment counter
           i++;
+          // Delay sebelum ketik karakter berikutnya (dalam millisecond)
           setTimeout(typing, speed);
         }
+        // Jika semua karakter sudah diketik, fungsi berhenti (return)
       }
+      
+      // Start typing animation
       typing();
     }
+    
+    // Jalankan typewriter effect saat DOM selesai load
     window.addEventListener('DOMContentLoaded', () => {
+      // Ambil elemen dengan id "typewriter"
       const typewriter = document.getElementById('typewriter');
+      // Check apakah elemen ada
       if(typewriter) {
+        // Jalankan efek mengetik dengan text dan speed 32ms per karakter
         typeWriterEffect(typewriter, 'Sistem Ekstraksi Keluhan Tempat Wisata Jember', 32);
       }
     });
