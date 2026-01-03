@@ -1,542 +1,391 @@
 # ============================================================================
-# SENTIMENT ANALYSIS API - FLASK APPLICATION
-# Tujuan: REST API untuk analisis sentimen ulasan wisata menggunakan IndoBERT
-# Fitur: Prediksi sentimen, ekstraksi keluhan, NLP dengan POS tagging
+# APP.PY - SISTEM EKSTRAKSI KELUHAN
+# Fitur: Hybrid CBD + Sentiment + User Defined Algorithm (POS + Regex Clean)
 # ============================================================================
 
-# ============================================================================
-# IMPORT LIBRARY
-# ============================================================================
-# PyTorch: Deep learning framework untuk inference model neural network
 import torch
-
-# Transformers: Library Hugging Face untuk BERT dan pipeline NLP
-from transformers import BertForSequenceClassification, BertTokenizer
-from transformers import pipeline
-
-# Joblib: Untuk load/save model scikit-learn (label encoder)
+import torch.nn as nn
+from transformers import AutoTokenizer, BertForSequenceClassification, AutoModel, pipeline
+from flask import Flask, request, jsonify, render_template
 import joblib
-
-# Flask: Web framework untuk membuat REST API
-from flask import Flask, request, jsonify, render_template, abort, send_from_directory
-
-# Standar library
-import os          # Operasi file dan folder
-import json        # Parse JSON
-from collections import Counter  # Hitung frekuensi kata
-import pandas as pd  # Data processing (opsional, untuk export/analisis)
-
+import pickle
+import os
+import json
+import re
+from collections import Counter
 
 # ============================================================================
-# KONFIGURASI PATH MODEL DAN RESOURCES
+# 1. KONFIGURASI
 # ============================================================================
-# Path ke model IndoBERT yang sudah disimpan (training output)
-MODEL_PATH = "./saved_model"
 
-# Path ke label encoder yang menyimpan mapping: angka -> label sentimen
+# --- Path Model ---
+SENTIMENT_MODEL_PATH = "./saved_model"
 LABEL_ENCODER_PATH = "label_encoder.pkl"
+MODEL_NAME = "indobenchmark/indobert-base-p1"
+POS_MODEL_NAME = "w11wo/indonesian-roberta-base-posp-tagger"
+CBD_BERT_PATH = "indobert_finetuned_clause.pt"
+CBD_CRF_PATH = "indobert_sklearn_crf_clause_model.pkl"
 
-# Model tokenizer pre-trained IndoBERT dari Hugging Face
-PRETRAINED_TOKENIZER = "indobenchmark/indobert-base-p1"
-
-
-# ============================================================================
-# LOAD LABEL ENCODER (Mengubah prediksi numerik menjadi label: Positif/Negatif/Netral)
-# ============================================================================
-try:
-    # Load label encoder yang di-save saat training
-    # Label encoder menyimpan: [0: 'negatif', 1: 'netral', 2: 'positif'] (contoh)
-    label_encoder = joblib.load(LABEL_ENCODER_PATH)
-    
-    # Hitung jumlah label (kelas) untuk konfigurasi model
-    num_labels = len(label_encoder.classes_)
-    print(f"[INFO] Label encoder loaded with {num_labels} classes.")
-except FileNotFoundError:
-    raise FileNotFoundError(
-        f"{LABEL_ENCODER_PATH} not found. "
-        "Kalau mau test cepat, gunakan test_app.py yang mem-mock model."
-    )
-except Exception as e:
-    raise RuntimeError(f"Error loading label encoder: {e}")
-
-
-# ============================================================================
-# LOAD TOKENIZER (Mengubah teks menjadi token/ID angka yang dipahami model)
-# ============================================================================
-try:
-    # Load tokenizer IndoBERT dari Hugging Face
-    # Tokenizer akan memecah teks -> token -> convert ke ID
-    tokenizer = BertTokenizer.from_pretrained(PRETRAINED_TOKENIZER)
-    print("[INFO] Tokenizer loaded.")
-except Exception as e:
-    raise RuntimeError(f"Error loading tokenizer: {e}")
-
-
-# ============================================================================
-# LOAD MODEL BERT (Model neural network untuk sentiment classification)
-# ============================================================================
-try:
-    # Load model BertForSequenceClassification dari folder saved_model
-    # Model ini sudah di-fine-tune untuk sentiment analysis bahasa Indonesia
-    model = BertForSequenceClassification.from_pretrained(MODEL_PATH, num_labels=num_labels)
-    
-    # Set model ke evaluation mode (matikan dropout, BatchNorm, dll)
-    model.eval()
-    print("[INFO] Model loaded.")
-except Exception as e:
-    raise RuntimeError(f"Error loading model: {e}")
-
-
-# ============================================================================
-# DEVICE SETUP (GPU atau CPU)
-# ============================================================================
-# Deteksi apakah CUDA (GPU NVIDIA) tersedia
+MAX_LEN_CBD = 128
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Pindahkan model ke device (GPU lebih cepat untuk inference)
-model.to(device)
-print(f"[INFO] Using device: {device}")
+# --- STOP WORDS KELUHAN (Sesuai Request) ---
+# Kata-kata ini diabaikan jika muncul sebagai kandidat kata negatif
+STOP_KELUHAN = {"membuat", "datang", "memberi", "memberikan", "mengambil", "menjadi", "bikin"}
 
+# --- BADWORDS / NEGATIVE KEYWORDS ---
+# (Disarankan hardcode disini agar tidak perlu file eksternal badword.txt saat run server)
+NEGATIVE_KEYWORDS = {
+    "kotor", "bau", "rusak", "mahal", "lambat", "lama", "lelet", "antri", 
+    "ramai", "penuh", "sesak", "panas", "gerah", "berisik", "bising",
+    "jelek", "buruk", "parah", "kecewa", "menyesal", "kapok", "kasar",
+    "jutek", "sinis", "sombong", "angkuh", "curam", "licin", "gelap",
+    "remang", "kumuh", "jorok", "bocor", "mati", "padam", "hilang",
+    "dicuri", "copet", "pungli", "susah", "sulit", "ribet", "membingungkan",
+    "kurang", "tidak", "gak", "enggak", "jangan", "bukan", "hancur", "berantakan",
+    "sampah", "berserakan", "liar", "gatal", "keruh", "berlumut", "amis",
+    "terbengkalai", "usang", "rapuh", "karatan", "bolong", "robek", 
+    "berbayar", "bayar", "dikit", "sedikit", "kecil", "sempit", "mahalnya",
+    "berlumpur", "banjir", "longsor", "retak", "pecah", "mampet", "hilang",
+    "tikus", "kecoa", "nyamuk", "lalat", "semut"
+}
 
 # ============================================================================
-# LOAD POS TAGGER (Part-of-Speech Tagging untuk ekstraksi keluhan)
+# 2. FUNGSI PREPROCESSING (SESUAI REQUEST)
 # ============================================================================
-# POS tagging: menentukan jenis kata (Noun, Adjective, Verb, dll)
-# Model: Indonesian RoBERTa yang sudah pre-trained untuk POS tagging
-pos_model_name = "w11wo/indonesian-roberta-base-posp-tagger"
-
-# Pipeline: Hugging Face pipeline untuk token-level classification
-# aggregation_strategy="simple": gabungkan subtoken ke word level
-pos_pipeline = pipeline(
-    "token-classification",
-    model=pos_model_name,
-    tokenizer=pos_model_name,
-    aggregation_strategy="simple"
-)
-
+def clean_text_user(text):
+    """
+    Membersihkan teks sesuai spesifikasi user:
+    1. Lowercase
+    2. Hapus URL
+    3. Hapus tanda baca/simbol (ganti spasi)
+    4. Hapus spasi berlebih
+    """
+    if not text: return ""
+    text = text.lower() # Case folding
+    text = re.sub(r'http\S+', '', text)  # Hapus URL
+    text = re.sub(r'[^a-zA-Z0-9\s]', ' ', text)  # Hapus tanda baca/karakter aneh
+    text = re.sub(r'\s+', ' ', text).strip() # Normalisasi spasi
+    return text
 
 # ============================================================================
-# LOAD BADWORD LIST (Kata-kata negatif tambahan untuk ekstraksi keluhan)
+# 3. LOAD MODEL
 # ============================================================================
-badword_file = "badword.txt"
+print("Sedang memuat model...")
+
+# A. Tokenizer
 try:
-    # Load file badword.txt (format: kata1, kata2, kata3, ...)
-    with open(badword_file, "r", encoding="utf-8") as f:
-        badword_text = f.read()
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+except Exception as e:
+    tokenizer = None
+    print(f"Error tokenizer: {e}")
+
+# B. Model Sentimen
+try:
+    if os.path.exists(LABEL_ENCODER_PATH):
+        label_encoder = joblib.load(LABEL_ENCODER_PATH)
+        num_sent_labels = len(label_encoder.classes_)
+    else:
+        class DummyEnc: classes_=['negatif','netral','positif']; inverse_transform=lambda x: [self.classes_[x[0]]]
+        label_encoder = DummyEnc()
+        num_sent_labels = 3
     
-    # Ubah menjadi set (lowercase) untuk deduplicasi dan pencarian cepat
-    negative_keywords = list({w.strip().lower() for w in badword_text.split(",") if w.strip()})
-except Exception:
-    # Jika file tidak ada, gunakan list kosong (tidak fatal)
-    negative_keywords = []
+    sentiment_model = BertForSequenceClassification.from_pretrained(SENTIMENT_MODEL_PATH, num_labels=num_sent_labels)
+    sentiment_model.to(device)
+    sentiment_model.eval()
+except Exception as e:
+    sentiment_model = None
+    print(f"Error sentiment model: {e}")
 
+# C. POS Tagger
+try:
+    pos_pipeline = pipeline(
+        "token-classification", 
+        model=POS_MODEL_NAME, 
+        tokenizer=POS_MODEL_NAME, 
+        aggregation_strategy="simple", 
+        device=0 if torch.cuda.is_available() else -1
+    )
+except:
+    pos_pipeline = None
+
+# D. Model CBD (Clause Boundary)
+class IndoBERT_FineTune(nn.Module):
+    def __init__(self, model_name, num_labels):
+        super().__init__()
+        self.bert = AutoModel.from_pretrained(model_name)
+        self.dropout = nn.Dropout(0.3)
+        self.classifier = nn.Linear(self.bert.config.hidden_size, num_labels)
+
+    def get_features(self, input_ids, attention_mask):
+        outputs = self.bert(input_ids, attention_mask=attention_mask)
+        features = self.dropout(outputs.last_hidden_state)
+        return features
+
+cbd_bert_model = None
+cbd_crf_model = None
+try:
+    # Cek library sklearn-crfsuite
+    try:
+        import sklearn_crfsuite
+    except ImportError:
+        pass
+
+    if os.path.exists(CBD_BERT_PATH) and os.path.exists(CBD_CRF_PATH):
+        cbd_bert_model = IndoBERT_FineTune(MODEL_NAME, num_labels=3)
+        cbd_bert_model.load_state_dict(torch.load(CBD_BERT_PATH, map_location=device))
+        cbd_bert_model.to(device)
+        cbd_bert_model.eval()
+        with open(CBD_CRF_PATH, 'rb') as f:
+            cbd_crf_model = pickle.load(f)
+        print("✓ Model Siap.")
+    else:
+        print("✗ Model CBD files missing.")
+except Exception as e:
+    print(f"✗ Gagal load CBD: {e}")
 
 # ============================================================================
-# STOP WORDS UNTUK EKSTRAKSI KELUHAN
+# 4. LOGIKA UTAMA
 # ============================================================================
-# Stop words: kata yang diabaikan karena terlalu umum atau tidak signifikan
-# Contoh: "membuat", "datang" tidak dianggap keluhan yang spesifik
-stop_keluhan = {"membuat", "datang", "memberi", "memberikan", "mengambil", "menjadi"}
 
+# --- A. CBD (Clause Boundary Detection) ---
+def extract_bert_features_finetuned(tokens):
+    encoded = tokenizer(
+        tokens, is_split_into_words=True, return_tensors="pt",
+        truncation=True, padding='max_length', max_length=MAX_LEN_CBD
+    ).to(device)
+    with torch.no_grad():
+        features = cbd_bert_model.get_features(encoded['input_ids'], encoded['attention_mask'])
+        features = features[0][:len(tokens)].cpu().numpy()
+    return features
 
-# ============================================================================
-# FUNGSI HELPER: CARI KATA ASLI DI KALIMAT ORIGINAL
-# ============================================================================
+def detect_clauses(text):
+    """Memecah paragraf menjadi klausa (sebelum preprocessing regex)"""
+    if not cbd_bert_model or not cbd_crf_model:
+        return re.split(r'[.,!?;]', text)
+
+    sub_sentences = re.split(r'([.!?])', text.strip())
+    all_clauses = []
+
+    for i in range(0, len(sub_sentences), 2):
+        sub_text = sub_sentences[i].strip()
+        if not sub_text: continue
+        tokens = tokenizer.tokenize(sub_text)
+        if not tokens: continue
+
+        try:
+            features = extract_bert_features_finetuned(tokens)
+            pred_tags = cbd_crf_model.predict_single(features)
+        except:
+            all_clauses.append(sub_text)
+            continue
+
+        current_clause = []
+        for tok, tag in zip(tokens, pred_tags):
+            if tok == "[UNK]": continue # Skip UNK
+            
+            is_subword = tok.startswith("##")
+            clean_tok = tok.replace("##", "")
+
+            if tag == "B-CLAUSE":
+                if current_clause: all_clauses.append(" ".join(current_clause))
+                current_clause = [clean_tok]
+            elif tag == "I-CLAUSE":
+                if is_subword and current_clause: current_clause[-1] += clean_tok
+                else: current_clause.append(clean_tok)
+            elif tag == "O":
+                if current_clause:
+                    all_clauses.append(" ".join(current_clause))
+                    current_clause = []
+        
+        if current_clause: all_clauses.append(" ".join(current_clause))
+
+    final_clauses = [c.strip() for c in all_clauses if len(c.strip()) > 3]
+    return final_clauses if final_clauses else [text]
+
+# --- B. Sentiment ---
+def predict_sentiment_global(text):
+    if not sentiment_model: return "netral"
+    # Preprocess minimal untuk BERT sentimen (jangan hilangkan tanda baca dulu, kadang ngaruh)
+    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=128).to(device)
+    with torch.no_grad():
+        outputs = sentiment_model(**inputs)
+    pred_id = torch.argmax(outputs.logits, dim=1).item()
+    return label_encoder.inverse_transform([pred_id])[0]
+
+# --- C. Extraction Helper Functions (User Logic) ---
 def find_original_word(text, word):
-    """
-    Cari kata asli di teks (karena tokenizer mungkin mengubah case/format).
-    
-    Args:
-        text (str): Kalimat asli dari review
-        word (str): Kata yang sudah diproses (lowercase, mungkin substring)
-    
-    Returns:
-        str: Kata asli dengan format original (capitalization, dll)
-    
-    Contoh: 
-        text = "Pantainya Sangat Indah"
-        word = "pantainya" -> return "Pantainya"
-    """
-    # Loop setiap kata di kalimat original
+    """Mencari kata asli dalam teks"""
     for w in text.split():
-        # Jika kata cocok (case-insensitive), return kata original
         if word in w.lower():
             return w
-    # Jika tidak ketemu, return kata yang diberikan (fallback)
     return word
 
-
-# ============================================================================
-# FUNGSI HELPER: MERGE NOUN PHRASES (NNO NNO -> NNO tunggal)
-# ============================================================================
 def merge_noun_phrases(tokens):
-    """
-    Gabungkan dua noun bersebelahan menjadi satu phrase.
-    
-    Args:
-        tokens (list): List of (word, POS_label) tuples
-    
-    Returns:
-        list: List of (word, POS_label) tuples dengan noun phrases yang sudah digabung
-    
-    Contoh:
-        Input:  [("pantai", "NNO"), ("pasir", "NNO"), ("indah", "ADJ")]
-        Output: [("pantai pasir", "NNO"), ("indah", "ADJ")]
-    """
+    """Gabungkan kata benda (NNO) berurutan"""
     merged = []
-    skip = False  # Flag untuk skip token yang sudah digabung
-    
+    skip = False
     for i in range(len(tokens)):
-        # Skip jika sudah digabung ke elemen sebelumnya
         if skip:
             skip = False
             continue
-        
         word, label = tokens[i]
-        
-        # Jika noun dan noun berikutnya, gabungkan
         if label == "NNO" and i+1 < len(tokens) and tokens[i+1][1] == "NNO":
-            # Gabung dengan spasi: "pantai" + "pasir" -> "pantai pasir"
             merged.append((word + " " + tokens[i+1][0], "NNO"))
-            skip = True  # Skip token berikutnya karena sudah digabung
+            skip = True
         else:
-            # Token tidak memenuhi kondisi, tambah ke hasil
             merged.append((word, label))
-    
     return merged
 
+# --- D. EKSTRAKSI UTAMA (User Algorithm) ---
+def extract_complaints_user_algo(raw_text):
+    if not pos_pipeline: return []
+    
+    # 1. PREPROCESSING (Regex User)
+    clean_text = clean_text_user(raw_text)
+    if not clean_text: return []
+
+    # 2. POS Tagging
+    try:
+        hasil_pos = pos_pipeline(clean_text)
+    except:
+        return []
+
+    tokens = [(t['word'].strip().lower(), t['entity_group']) for t in hasil_pos]
+
+    # 3. Gabungkan Noun Phrases
+    tokens = merge_noun_phrases(tokens)
+
+    keluhan_list = []
+    
+    # 4. Logika Pencarian Pasangan (Distance <= 4)
+    for i, (word, label) in enumerate(tokens):
+        if label == "NNO":
+            # Cari bentuk asli kata (sebelum lowercase/clean) untuk display yang bagus
+            # Kita cari di clean_text saja karena raw_text mungkin punya tanda baca yg bikin matching susah
+            original_nno = find_original_word(clean_text, word) 
+            
+            closest_keluhan = None
+            min_distance = 999
+
+            for j, (w2, l2) in enumerate(tokens):
+                if j != i:
+                    # Cek apakah token adalah Indikator Negatif
+                    is_neg_indicator = (l2 in ["ADJ", "NEG", "VBI", "VBT", "VBP"] or 
+                                        w2 in NEGATIVE_KEYWORDS or 
+                                        w2 == "tidak")
+                    
+                    if is_neg_indicator:
+                        if w2 in STOP_KELUHAN: continue
+                        
+                        distance = abs(j - i)
+                        if distance <= 4 and distance < min_distance:
+                            min_distance = distance
+                            
+                            # Logika Khusus "Tidak"
+                            if w2 == "tidak":
+                                if j+1 < len(tokens):
+                                    next_word = tokens[j+1][0]
+                                    closest_keluhan = f"{original_nno} tidak {next_word}"
+                                else:
+                                    closest_keluhan = f"{original_nno} tidak jelas"
+                            
+                            # Logika "Tidak" di belakang kata sifat (misal: "bersih tidak") -> jarang, 
+                            # tapi logika di script user: j-1 >= 0 and tokens[j-1][0] == "tidak"
+                            elif j-1 >= 0 and tokens[j-1][0] == "tidak":
+                                closest_keluhan = f"{original_nno} tidak {w2}"
+                            
+                            else:
+                                closest_keluhan = f"{original_nno} {w2}"
+
+            # Fallback
+            if not closest_keluhan:
+                closest_keluhan = f"{original_nno} bermasalah"
+            
+            keluhan_list.append(closest_keluhan)
+
+    return list(dict.fromkeys(keluhan_list)) # Hapus duplikat
 
 # ============================================================================
-# INISIALISASI FLASK APP
+# 5. FLASK ROUTES
 # ============================================================================
 app = Flask(__name__)
 
-
-# ============================================================================
-# ROUTE 1: HOME / INFORMASI API
-# ============================================================================
 @app.route('/')
-def home():
-    """
-    Endpoint root untuk informasi API.
-    
-    Returns:
-        str: Pesan sambutan dan panduan endpoint
-    """
-    return "Sentiment Analysis API. Use /predict endpoint or open /ui for a simple web UI."
-
-
-# ============================================================================
-# ROUTE 2: UI (User Interface - Halaman Web)
-# ============================================================================
+def home(): return "API Ekstraksi Keluhan (New Algorithm + Regex Clean)."
 @app.route('/ui')
-def ui():
-    """
-    Render halaman web interaktif untuk testing sentiment analysis.
-    
-    Returns:
-        HTML: Dari templates/index.html
-    
-    Requires:
-        File templates/index.html harus ada di project folder
-    """
-    try:
-        # Render template HTML (templates/index.html)
-        return render_template("index.html")
-    except Exception:
-        # Jika template tidak ada, return error 500
-        abort(500, description="UI template missing. Put templates/index.html in project folder.")
+def ui(): return render_template("new.html")
 
-
-# ============================================================================
-# ROUTE 3: PREDICT SENTIMENT (Single Review)
-# ============================================================================
-@app.route('/predict', methods=['POST'])
-def predict_sentiment():
-    """
-    Endpoint untuk prediksi sentimen single review.
-    
-    Request JSON:
-        {
-            "text": "Pantainya sangat indah dan bersih!"
-        }
-    
-    Response JSON:
-        {
-            "sentiment": "positif"
-        }
-    
-    Returns:
-        JSON: {"sentiment": label} atau error 400 jika request invalid
-    """
-    # Parse JSON dari request body
-    data = request.get_json(silent=True)
-    
-    # Validasi: pastikan field "text" ada
-    if not data or 'text' not in data:
-        return jsonify({'error': 'Invalid request. Provide JSON with "text" field.'}), 400
-
-    new_review = data['text']
-    
-    # ====== TOKENIZATION ======
-    # Ubah teks string -> token ID + attention mask
-    inputs = tokenizer(
-        new_review,
-        return_tensors="pt",      # Return PyTorch tensor
-        padding=True,             # Padding ke max_length
-        truncation=True,          # Potong jika > max_length
-        max_length=128            # Max token length (BERT standar 512, tapi 128 cukup)
-    )
-    
-    # Pindahkan input tensor ke device (GPU atau CPU)
-    inputs = {k: v.to(device) for k, v in inputs.items()}
-
-    # ====== INFERENCE (Prediksi) ======
-    # Jalankan model tanpa menghitung gradien (eval mode)
-    with torch.no_grad():
-        # outputs.logits: shape (batch_size, num_labels) = (1, 3) untuk 3 sentimen
-        outputs = model(**inputs)
-
-    # Ambil class dengan logit tertinggi
-    predicted_id = torch.argmax(outputs.logits, dim=1).cpu().numpy()[0]
-    
-    # Convert ID -> label string (contoh: 2 -> "positif")
-    predicted_label = label_encoder.inverse_transform([predicted_id])[0]
-
-    return jsonify({'sentiment': predicted_label})
-
-
-# ============================================================================
-# ROUTE 4: DAFTAR WISATA (List semua file ulasan)
-# ============================================================================
 @app.route('/wisata_list', methods=['GET'])
 def wisata_list():
-    """
-    Endpoint untuk mendapatkan daftar semua wisata yang tersedia.
-    
-    Response JSON:
-        {
-            "wisata": ["Pantai Papuma Jember", "Jember Mini Zoo", ...]
-        }
-    
-    Returns:
-        JSON: {"wisata": [list nama wisata]}
-    """
-    # Folder "data" tempat menyimpan file JSON ulasan
     folder = os.path.join(os.path.dirname(__file__), 'data')
-    
-    # Ambil semua file .json
+    if not os.path.exists(folder): return jsonify({'wisata': []})
     wisata_files = [f for f in os.listdir(folder) if f.endswith('.json')]
-    
-    # Convert nama file -> nama wisata
-    # Contoh: "pantai_papuma_jember.json" -> "Pantai Papuma Jember"
-    wisata_names = [f.replace('.json','').replace('_',' ').title() for f in wisata_files]
-    
-    return jsonify({'wisata': wisata_names})
+    names = [f.replace('.json','').replace('_',' ').title() for f in wisata_files]
+    return jsonify({'wisata': names})
 
-
-# ============================================================================
-# ROUTE 5: ANALISIS WISATA (Full sentiment analysis + complaint extraction)
-# ============================================================================
 @app.route('/analisis_wisata', methods=['POST'])
 def analisis_wisata():
-    """
-    Endpoint untuk analisis lengkap satu wisata:
-    - Predict sentiment setiap ulasan
-    - Hitung statistik sentimen
-    - Extract keluhan dari review negatif
-    
-    Request JSON:
-        {
-            "wisata": "Pantai Papuma Jember"
-        }
-    
-    Response JSON:
-        {
-            "wisata": "...",
-            "total": 150,
-            "positif": 120,
-            "negatif": 20,
-            "netral": 10,
-            "results": [{"review": "...", "sentiment": "positif"}, ...],
-            "complaints": [{"No": 1, "Ulasan Negatif": "...", "Keluhan": "..."}, ...],
-            "top_nouns": [{"word": "pantai", "count": 5}, ...]
-        }
-    """
-    # Parse request JSON
     req = request.get_json(silent=True)
-    
-    # Validasi: pastikan "wisata" field ada
-    if not req or 'wisata' not in req:
-        return jsonify({'error': 'Missing wisata name'}), 400
+    if not req or 'wisata' not in req: return jsonify({'error': 'Missing wisata name'}), 400
     
     wisata_name = req['wisata']
-    
-    # ====== BACA FILE DATA ======
-    # Folder data
-    folder = os.path.join(os.path.dirname(__file__), 'data')
-    
-    # Konvert nama wisata -> nama file
-    # Contoh: "Pantai Papuma Jember" -> "pantai_papuma_jember.json"
     filename = wisata_name.lower().replace(' ','_') + '.json'
-    filepath = os.path.join(folder, filename)
+    filepath = os.path.join(os.path.dirname(__file__), 'data', filename)
     
-    # Check apakah file ada
-    if not os.path.exists(filepath):
-        return jsonify({'error': 'File not found'}), 404
+    if not os.path.exists(filepath): return jsonify({'error': 'File not found'}), 404
     
-    # Buka dan parse JSON
-    with open(filepath, encoding='utf-8') as f:
-        data = json.load(f)
-    
-    # Extract list ulasan dari JSON
+    with open(filepath) as f: data = json.load(f)
     reviews = data.get('reviews', [])
     
-    # ====== INISIALISASI COUNTER ======
-    results = []              # Simpan semua hasil prediksi
-    negative_reviews = []     # Simpan hanya ulasan negatif (untuk ekstraksi keluhan)
-    count_pos, count_neg, count_neu = 0, 0, 0  # Counter sentimen
+    complaint_data = []
+    count_pos, count_neg, count_neu = 0, 0, 0
+    all_nno_words = []
     
-    # ====== LOOP SETIAP REVIEW: PREDICT SENTIMENT ======
     for review in reviews:
-        # Tokenization
-        inputs = tokenizer(review, return_tensors="pt", padding=True, truncation=True, max_length=128)
-        inputs = {k: v.to(device) for k, v in inputs.items()}
+        # 1. Pecah Klausa (Menggunakan Teks Asli agar tanda baca terbaca)
+        clauses = detect_clauses(review)
         
-        # Inference
-        with torch.no_grad():
-            outputs = model(**inputs)
-        
-        # Prediksi
-        predicted_id = torch.argmax(outputs.logits, dim=1).cpu().numpy()[0]
-        predicted_label = label_encoder.inverse_transform([predicted_id])[0]
-        
-        # Hitung berdasarkan sentimen
-        if predicted_label.lower() == 'positif':
-            count_pos += 1
-        elif predicted_label.lower() == 'negatif':
-            count_neg += 1
-            # Simpan ulasan negatif untuk ekstraksi keluhan nanti
-            negative_reviews.append(review)
-        else:
-            count_neu += 1
-        
-        # Simpan hasil
-        results.append({'review': review, 'sentiment': predicted_label})
-    
-    # ====== EKSTRAKSI KELUHAN DARI REVIEW NEGATIF ======
-    # Hanya proses ulasan negatif (optimasi waktu)
-    
-    all_nno_words = []        # Kumpul semua noun (untuk top-5 nanti)
-    final_data = []           # Hasil akhir keluhan dengan nomor urut
-    
-    # Loop setiap ulasan negatif
-    for idx, kalimat in enumerate(negative_reviews, start=1):
-        # ====== POS TAGGING ======
-        # Jalankan POS tagger pada kalimat
-        hasil_pos = pos_pipeline(kalimat)
-        
-        # Extract (word, POS_label) dari output tagger
-        # Contoh: [("pantai", "NNO"), ("sangat", "ADV"), ("jelek", "ADJ"), ...]
-        tokens = [(t['word'].strip().lower(), t['entity_group']) for t in hasil_pos]
-        
-        # Merge noun phrases: "pantai" + "pasir" -> "pantai pasir"
-        tokens = merge_noun_phrases(tokens)
-        
-        # ====== EKSTRAKSI KELUHAN (Pairing Object + Modifier) ======
-        keluhan_pairs = []  # Keluhan untuk kalimat ini
-        
-        # Loop setiap token untuk cari noun
-        for i, (word, label) in enumerate(tokens):
-            # Jika token adalah noun (NNO)
-            if label == "NNO":
-                # Cari kata asli di kalimat (bukan lowercase hasil tokenizer)
-                original_nno = find_original_word(kalimat, word)
+        for clause in clauses:
+            # 2. Cek Sentimen
+            clause_sent = predict_sentiment_global(clause)
+            
+            if clause_sent.lower() == 'positif': count_pos += 1
+            elif clause_sent.lower() == 'negatif': count_neg += 1
+            else: count_neu += 1
+            
+            # 3. Ekstraksi (Hanya Negatif/Netral)
+            if clause_sent.lower() in ['negatif', 'netral']:
+                # Ekstraksi menggunakan algoritma baru + preprocess regex
+                extracted_list = extract_complaints_user_algo(clause)
                 
-                # Tambahkan ke daftar semua noun (untuk top-5 nanti)
-                all_nno_words.append(original_nno)
-                
-                # ====== CARI MODIFIER TERDEKAT (ADJ, VB, NEG, dll) ======
-                closest_keluhan = None
-                min_distance = 999  # Jarak minimal ke modifier
-                
-                # Loop token lain untuk cari modifier
-                for j, (w2, l2) in enumerate(tokens):
-                    if j != i:  # Jangan compare dengan diri sendiri
-                        # Check apakah token adalah modifier
-                        if l2 in ["ADJ", "NEG", "VBI", "VBT", "VBP"] or w2 in negative_keywords or w2 == "tidak":
-                            # Skip kata umum yang tidak spesifik
-                            if w2 in stop_keluhan:
-                                continue
-                            
-                            # Hitung jarak antara noun dan modifier
-                            distance = abs(j - i)
-                            
-                            # Jika jarak <= 4 kata dan lebih dekat dari yang sebelumnya
-                            if distance <= 4 and distance < min_distance:
-                                min_distance = distance
-                                
-                                # ====== BUILD KELUHAN PHRASE ======
-                                # Special case: "tidak" -> "tidak X"
-                                if w2 == "tidak":
-                                    if j+1 < len(tokens):
-                                        next_word = tokens[j+1][0]
-                                        closest_keluhan = f"{original_nno} tidak {next_word}"
-                                    else:
-                                        closest_keluhan = f"{original_nno} tidak jelas"
-                                # Case: "tidak X" -> "tidak X"
-                                elif j-1 >= 0 and tokens[j-1][0] == "tidak":
-                                    closest_keluhan = f"{original_nno} tidak {w2}"
-                                # Case normal: "noun modifier"
-                                else:
-                                    closest_keluhan = f"{original_nno} {w2}"
-                
-                # Jika tidak ada modifier ditemukan, default "bermasalah"
-                if not closest_keluhan:
-                    closest_keluhan = f"{original_nno} bermasalah"
-                
-                keluhan_pairs.append(closest_keluhan)
-        
-        # Hapus duplikat keluhan (dict.fromkeys untuk preserve order)
-        keluhan_pairs = list(dict.fromkeys(keluhan_pairs))
-        
-        # Jika tidak ada keluhan terdeteksi
-        if not keluhan_pairs:
-            keluhan_pairs = ["keluhan tidak terdeteksi"]
-        
-        # Simpan hasil keluhan untuk kalimat ini
-        final_data.append({
-            "No": idx,
-            "Ulasan Negatif": kalimat,
-            "Keluhan": ", ".join(keluhan_pairs)
-        })
-    
-    # ====== TOP-5 NOUN (Objek paling sering dikomplain) ======
-    # Hitung frekuensi setiap noun
+                if extracted_list:
+                    for item in extracted_list:
+                        first_word = item.split()[0]
+                        all_nno_words.append(first_word)
+
+                    formatted = ", ".join(extracted_list)
+                    complaint_data.append({
+                        "Ulasan Negatif": clause, 
+                        "Keluhan": formatted
+                    })
+
+    # Output Statistics
     nno_counter = Counter(all_nno_words)
-    
-    # Ambil 5 noun dengan frekuensi tertinggi
     top_5_nno = nno_counter.most_common(5)
 
-    # ====== RETURN RESPONSE ======
+    for i, item in enumerate(complaint_data, 1): item['No'] = i
+
     return jsonify({
         'wisata': wisata_name,
         'total': len(reviews),
         'positif': count_pos,
         'negatif': count_neg,
         'netral': count_neu,
-        'results': results,
-        'complaints': final_data,
+        'results': [],
+        'complaints': complaint_data,
         'top_nouns': [{'word': noun, 'count': count} for noun, count in top_5_nno]
     })
 
-
-# ============================================================================
-# MAIN: JALANKAN FLASK APP
-# ============================================================================
 if __name__ == '__main__':
-    # Jalankan Flask development server
-    # host="0.0.0.0": accessible dari network (bukan hanya localhost)
-    # port=5000: port standar Flask
-    # debug=True: auto-reload saat ada perubahan kode, detailed error messages
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5132, debug=True)
