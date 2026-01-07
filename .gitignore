@@ -2,4 +2,8 @@
 /venv
 *.pt
 *pkl
-/saved_model
+*.safetensors
+*.bin
+*.json
+./model/saved_model/
+./cbd_new/

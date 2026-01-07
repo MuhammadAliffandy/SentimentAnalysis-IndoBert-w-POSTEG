@@ -1,587 +1,233 @@
-# ============================================================================
-# CLAUSE BOUNDARY DETECTION (CBD)
-# Tujuan: Deteksi batas-batas klausa dalam kalimat bahasa Indonesia
-# Menggunakan: Fine-tuned IndoBERT + CRF (Conditional Random Field)
-# ============================================================================
-
-# ============================================================================
-# IMPORT LIBRARY
-# ============================================================================
-# Pandas: Data processing (baca/tulis CSV)
 import pandas as pd
-
-# PyTorch: Deep learning framework
 import torch
 import torch.nn as nn
-
-# Hugging Face Transformers: BERT dan tokenizer
 from transformers import AutoTokenizer, AutoModel
-
-# Pickle: Load/save model Python object
 import pickle
-
-# OS: Operasi file dan folder
 import os
+import re
+import numpy as np
 
-
-# ============================================================================
-# KONFIGURASI GLOBAL
-# ============================================================================
-# Nama model BERT pre-trained dari Hugging Face
+# ==============================
+# KONFIGURASI
+# ==============================
 MODEL_NAME = "indobenchmark/indobert-base-p1"
-
-# Path file model BERT yang sudah di-fine-tune
-BERT_MODEL_PATH = "indobert_finetuned_clause.pt"
-
-# Path file CRF model (scikit-learn CRF)
-CRF_MODEL_PATH = "indobert_sklearn_crf_clause_model.pkl"
-
-# Path file CSV test dataset
+BERT_MODEL_PATH = "../indobert_finetuned_clause.pt"
+CRF_MODEL_PATH = "../indobert_sklearn_crf_clause_model.pkl"
 TEST_CSV = "Dataset-test.csv"
-
-# Max length untuk tokenization BERT
 MAX_LEN = 128
 
-# Device: CUDA (GPU) atau CPU
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-
-# ============================================================================
-# FINE-TUNED BERT MODEL CLASS
-# ============================================================================
+# ==============================
+# CLASS MODEL
+# ==============================
 class IndoBERT_FineTune(nn.Module):
-    """
-    Custom BERT model untuk Clause Boundary Detection.
-    
-    Struktur:
-    - BERT encoder (pre-trained dari Hugging Face)
-    - Dropout layer (regularisasi)
-    - Linear classifier (output layer)
-    """
-    
     def __init__(self, model_name, num_labels):
-        """
-        Constructor class.
-        
-        Args:
-            model_name (str): Nama model BERT pre-trained
-            num_labels (int): Jumlah label output (3: B-CLAUSE, I-CLAUSE, O)
-        """
         super().__init__()
-        
-        # Load BERT pre-trained dari Hugging Face
         self.bert = AutoModel.from_pretrained(model_name)
-        
-        # Dropout layer: dropout 30% untuk regularisasi
         self.dropout = nn.Dropout(0.3)
-        
-        # Linear layer: transformasi BERT hidden state -> num_labels
         self.classifier = nn.Linear(self.bert.config.hidden_size, num_labels)
 
     def get_features(self, input_ids, attention_mask):
-        """
-        Ekstrak BERT features tanpa classifier.
-        
-        Args:
-            input_ids: Tensor token IDs dari BERT tokenizer
-            attention_mask: Tensor attention mask (1 untuk token real, 0 untuk padding)
-        
-        Returns:
-            Tensor: BERT features setelah dropout (shape: [batch_size, seq_len, hidden_size])
-        """
-        # Forward pass ke BERT
         outputs = self.bert(input_ids, attention_mask=attention_mask)
-        
-        # Ambil last hidden state (token-level embeddings)
-        # Shape: [batch_size, seq_len, hidden_size]
-        features = self.dropout(outputs.last_hidden_state)
-        
-        return features
+        return self.dropout(outputs.last_hidden_state)
 
-
-# ============================================================================
-# LOAD MODELS (BERT + CRF)
-# ============================================================================
+# ==============================
+# LOAD MODELS
+# ==============================
 print("="*60)
-print("CLAUSE BOUNDARY DETECTION - Fine-tuned IndoBERT + CRF")
+print("SMART CLAUSE EXTRACTION (FIXED LOGIC)")
 print("="*60)
 
-# ================================================================
-# CHECK: Apakah file model BERT ada
-# ================================================================
-if not os.path.exists(BERT_MODEL_PATH):
-    # Jika file tidak ada, tampilkan error dan exit
-    print(f"\n❌ Fine-tuned BERT model tidak ditemukan: {BERT_MODEL_PATH}")
-    print("Jalankan train_test_clause.py terlebih dahulu!")
-    exit(1)
+if not os.path.exists(BERT_MODEL_PATH) or not os.path.exists(CRF_MODEL_PATH):
+    print(f"❌ Model tidak ditemukan di path: {BERT_MODEL_PATH}")
+    # exit(1) # Commented for debugging flexibility
 
-# ================================================================
-# CHECK: Apakah file model CRF ada
-# ================================================================
-if not os.path.exists(CRF_MODEL_PATH):
-    # Jika file tidak ada, tampilkan error dan exit
-    print(f"\n❌ CRF model tidak ditemukan: {CRF_MODEL_PATH}")
-    print("Jalankan train_test_clause.py terlebih dahulu!")
-    exit(1)
-
-# ================================================================
-# LOAD TOKENIZER
-# ================================================================
-print(f"\n✓ Loading fine-tuned BERT dari {BERT_MODEL_PATH}...")
-# Load tokenizer dari model pre-trained
+print(f"✓ Loading Models ke {device}...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-
-# ================================================================
-# LOAD BERT MODEL
-# ================================================================
-# Instantiate custom BERT model class dengan num_labels=3 (B, I, O)
 bert_model = IndoBERT_FineTune(MODEL_NAME, num_labels=3)
+try:
+    bert_model.load_state_dict(torch.load(BERT_MODEL_PATH, map_location=device))
+    bert_model = bert_model.to(device)
+    bert_model.eval() # PENTING: Matikan dropout saat inferensi
+    print("✓ BERT Loaded.")
+except Exception as e:
+    print(f"❌ Gagal load BERT: {e}")
 
-# Load state dict dari file yang sudah di-train
-bert_model.load_state_dict(torch.load(BERT_MODEL_PATH, map_location=device))
+try:
+    with open(CRF_MODEL_PATH, 'rb') as f:
+        crf_model = pickle.load(f)
+    print("✓ CRF Loaded.")
+except Exception as e:
+    print(f"❌ Gagal load CRF: {e}")
 
-# Pindahkan model ke device (GPU atau CPU)
-bert_model = bert_model.to(device)
-
-# Set model ke evaluation mode (disable dropout, batch norm, dll)
-bert_model.eval()
-
-# ================================================================
-# LOAD CRF MODEL
-# ================================================================
-print(f"✓ Loading CRF model dari {CRF_MODEL_PATH}...")
-# Load CRF model dari pickle file
-with open(CRF_MODEL_PATH, 'rb') as f:
-    crf_model = pickle.load(f)
-
-# ================================================================
-# KONFIRMASI: Semua model berhasil dimuat
-# ================================================================
-print("✓ Semua model berhasil dimuat!")
-
-
-# ============================================================================
-# FUNGSI: EKSTRAKSI BERT FEATURES
-# ============================================================================
-def extract_bert_features_finetuned(tokens):
-    """
-    Ekstraksi BERT features dari fine-tuned model untuk token list.
-    
-    Args:
-        tokens (list): List token (sudah di-tokenize dari text)
-    
-    Returns:
-        numpy.ndarray: BERT features dengan shape (len(tokens), hidden_size)
-    """
-    # Tokenize dengan BERT tokenizer
-    # is_split_into_words=True: token sudah di-split (tidak perlu split lagi)
-    # return_tensors="pt": return PyTorch tensor
-    # truncation=True: potong jika > max_length
-    # padding='max_length': pad ke max_length
-    encoded = tokenizer(
+# ==============================
+# FUNGSI EXTRACTION (ALIGNED)
+# ==============================
+def extract_bert_features_aligned(tokens, tokenizer, model, device):
+    # Gabungkan token jadi string untuk tokenizer, lalu tokenize ulang
+    # Ini trik agar kita dapat offset mapping yang akurat
+    encoding = tokenizer(
         tokens,
         is_split_into_words=True,
         return_tensors="pt",
+        padding=True,
         truncation=True,
-        padding='max_length',
         max_length=MAX_LEN
     ).to(device)
-    
-    # Forward pass ke BERT model (tanpa gradient)
+
     with torch.no_grad():
-        # Ekstrak features dari fine-tuned BERT
-        features = bert_model.get_features(encoded['input_ids'], encoded['attention_mask'])
-        
-        # Ambil batch pertama, truncate ke jumlah token asli, convert ke numpy
-        # Shape: (len(tokens), hidden_size)
-        features = features[0][:len(tokens)].cpu().numpy()
-    
-    return features
+        full_features = model.get_features(
+            input_ids=encoding['input_ids'], 
+            attention_mask=encoding['attention_mask']
+        )
 
+    word_ids = encoding.word_ids(batch_index=0)
+    aligned_features = []
+    
+    # Ambil fitur dari token PERTAMA dari setiap kata asli
+    single_seq_features = full_features[0] 
+    previous_word_idx = None
+    
+    for idx, word_idx in enumerate(word_ids):
+        if word_idx is None: continue
+        if word_idx != previous_word_idx:
+            feat = single_seq_features[idx].cpu().numpy()
+            aligned_features.append(feat)
+            previous_word_idx = word_idx
 
-# ============================================================================
-# FUNGSI: DETEKSI KLAUSA
-# ============================================================================
-def detect_clauses(text):
-    """
-    Deteksi boundary klausa dari teks.
+    # Potong token jika truncation terjadi
+    limit = len(aligned_features)
+    return np.array(aligned_features), tokens[:limit]
+
+# ==============================
+# LOGIKA DETEKSI CERDAS (REVISED)
+# ==============================
+def detect_clauses_smart(text):
+    if not isinstance(text, str) or not text.strip():
+        return []
     
-    Args:
-        text (str): Kalimat input
+    # 1. Normalisasi Teks
+    # Ubah enter jadi spasi, hapus spasi ganda
+    clean_text = re.sub(r'\s+', ' ', text).strip()
     
-    Returns:
-        list: List klausa yang terdeteksi
-    """
-    import re
+    # 2. Tokenisasi Awal (Mempertahankan tanda baca sebagai token terpisah)
+    # Regex ini memisahkan kata dan tanda baca
+    raw_tokens = re.findall(r"\w+(?:'\w+)?|[^\w\s]", clean_text)
     
-    # Split text by punctuation marks (., !, ?)
-    # Contoh: "Rumah ini indah. Tempat tinggal yang nyaman!" 
-    #         -> ['Rumah ini indah', '.', 'Tempat tinggal yang nyaman', '!', '']
-    sub_sentences = re.split(r'([.!?])', text.strip())
+    if not raw_tokens: return []
+
+    # 3. Ekstrak Fitur & Prediksi
+    features, valid_tokens = extract_bert_features_aligned(
+        raw_tokens, tokenizer, bert_model, device
+    )
     
-    # List untuk menyimpan semua klausa yang terdeteksi
-    all_clauses = []
+    if len(valid_tokens) == 0: return []
     
-    # ================================================================
-    # LOOP: Process setiap sub-sentence (teks antar punctuation)
-    # ================================================================
-    # range(0, len, 2): ambil index 0, 2, 4, ... (teks, bukan punctuation)
-    for i in range(0, len(sub_sentences), 2):
-        # Ambil sub-sentence dan strip whitespace
-        sub_text = sub_sentences[i].strip()
+    pred_tags = crf_model.predict_single(features)
+
+    # 4. REKONSTRUKSI CERDAS
+    clauses = []
+    current_clause = []
+    
+    # Kata penghubung yang TIDAK boleh memisahkan klausa (enumerasi)
+    # Contoh: "mandi DAN renang", "murah, enak"
+    NO_SPLIT_PREV = [",", "dan", "serta", "atau", "&", "plus", "dengan", "buat", "untuk"]
+    
+    # Kata penghubung yang WAJIB memisahkan klausa (kontradiksi/sebab-akibat)
+    # Contoh: "bagus TAPI mahal", "sepi KARENA hujan"
+    FORCE_SPLIT_CURR = ["tapi", "tetapi", "namun", "sedangkan", "melainkan", "padahal", "walau", "meski", "karena", "soalnya", "sehingga", "pas", "waktu", "saat"]
+
+    for i, (tok, tag) in enumerate(zip(valid_tokens, pred_tags)):
+        tok_lower = tok.lower()
+        prev_tok_lower = valid_tokens[i-1].lower() if i > 0 else ""
         
-        # Skip jika kosong
-        if not sub_text:
-            continue
+        should_split = False
+
+        # --- LOGIKA SPLIT ---
         
-        # ================================================================
-        # TOKENIZATION: Tokenize sub-sentence
-        # ================================================================
-        # Tokenize dengan BERT tokenizer
-        tokens = tokenizer.tokenize(sub_text)
+        # Rule 1: Model mendeteksi B-CLAUSE (Awal Baru)
+        if tag == "B-CLAUSE":
+            # PENGECUALIAN: Jika kata sebelumnya adalah enumerasi ("dan", ","), abaikan B-CLAUSE
+            if prev_tok_lower in NO_SPLIT_PREV:
+                should_split = False
+            else:
+                should_split = True
         
-        # Skip jika tidak ada token
-        if not tokens:
-            continue
-        
-        # ================================================================
-        # EKSTRAKSI FEATURES: Ambil BERT features dari fine-tuned model
-        # ================================================================
-        features = extract_bert_features_finetuned(tokens)
-        
-        # ================================================================
-        # PREDIKSI: CRF predict tags (B-CLAUSE, I-CLAUSE, O)
-        # ================================================================
-        # CRF model predict BIO tags untuk setiap token
-        pred_tags = crf_model.predict_single(features)
-        
-        # ================================================================
-        # PARSE BIO TAGS: Konversi BIO tags -> klausa
-        # ================================================================
-        # Current clause accumulator
-        current_clause = []
-        
-        # Loop setiap token dan tag
-        for tok, tag in zip(tokens, pred_tags):
-            # B-CLAUSE: Beginning of new clause
-            if tag == "B-CLAUSE":
-                # Jika ada clause sebelumnya, simpan ke all_clauses
-                if current_clause:
-                    all_clauses.append(" ".join(current_clause))
-                # Mulai clause baru
-                current_clause = [tok]
+        # Rule 2: Paksa pisah jika ketemu kata sambung kuat (TAPI, KARENA, dll)
+        # Ini mengatasi jika model CRF gagal memprediksi B-CLAUSE
+        elif tok_lower in FORCE_SPLIT_CURR:
+            should_split = True
             
-            # I-CLAUSE: Inside clause (continuation)
-            elif tag == "I-CLAUSE":
-                # Tambah token ke current clause
-                current_clause.append(tok)
-            
-            # O: Outside (tidak ada clause)
-            elif tag == "O":
-                # Jika ada clause sebelumnya, simpan
-                if current_clause:
-                    all_clauses.append(" ".join(current_clause))
-                    # Reset current clause
-                    current_clause = []
-        
-        # ================================================================
-        # CLEANUP: Simpan sisa clause jika ada
-        # ================================================================
-        if current_clause:
-            all_clauses.append(" ".join(current_clause))
-    
-    # Return list semua klausa yang terdeteksi
-    return all_clauses
+        # Rule 3: Tanda baca akhir kalimat (. ! ?) selalu pisah
+        elif tok_lower in ['.', '!', '?']:
+            # Append tanda baca dulu ke klausa saat ini, baru nanti di loop berikutnya jadi baru
+            current_clause.append(tok)
+            if current_clause:
+                clauses.append(" ".join(current_clause).replace(" ,", ",").replace(" .", "."))
+            current_clause = []
+            continue # Lanjut ke token berikutnya (klausa baru mulai kosong)
 
-
-# ============================================================================
-# FUNGSI: EKSTRAK DAN SIMPAN KLAUSA KE CSV
-# ============================================================================
-def extract_and_save_clauses(csv_path=TEST_CSV, output_csv="output_extracted_clauses.csv"):
-    """
-    Ekstrak klausa dari CSV test dan simpan ke file CSV output.
-    
-    Args:
-        csv_path (str): Path file input CSV
-        output_csv (str): Path file output CSV (default: output_extracted_clauses.csv)
-    """
-    print("\n" + "="*60)
-    print(f"EKSTRAKSI KLAUSA - {csv_path}")
-    print("="*60)
-    
-    # ================================================================
-    # CHECK: Apakah file CSV ada
-    # ================================================================
-    if not os.path.exists(csv_path):
-        print(f"\n❌ File tidak ditemukan: {csv_path}")
-        return
-    
-    # ================================================================
-    # LOAD CSV: Baca dengan berbagai encoding
-    # ================================================================
-    try:
-        # Try latin1 encoding dulu
-        df = pd.read_csv(csv_path, encoding='latin1')
-    except:
-        try:
-            # Fallback ke UTF-8
-            df = pd.read_csv(csv_path, encoding='utf-8')
-        except Exception as e:
-            # Jika semua gagal, print error dan return
-            print(f"❌ Error membaca CSV: {e}")
-            return
-    
-    # Konfirmasi: dataset berhasil dimuat
-    print(f"✓ Dataset loaded: {len(df)} baris")
-    
-    # ================================================================
-    # DETECT COLUMN: Cari kolom teks (komentar, comment, text, dll)
-    # ================================================================
-    text_col = None
-    # Loop semua kolom dan cari yang namanya cocok
-    for col in df.columns:
-        if col.lower() in ['komentar', 'comment', 'text', 'ulasan', 'review']:
-            text_col = col
-            break
-    
-    # Jika tidak ketemu, gunakan kolom pertama
-    if text_col is None:
-        text_col = df.columns[0]
-    
-    print(f"✓ Menggunakan kolom: {text_col}\n")
-    
-    # ================================================================
-    # PROCESS: Loop semua baris dan ekstrak klausa
-    # ================================================================
-    # List untuk menyimpan hasil (setiap klausa 1 baris)
-    results = []
-    # Counter total klausa
-    total_clauses = 0
-    
-    print("Processing...")
-    # Loop setiap baris
-    for idx in range(len(df)):
-        # Ambil text dari kolom terpilih
-        text = str(df.iloc[idx][text_col]).strip()
+        # --- EKSEKUSI ---
         
-        # Skip jika text kosong atau NaN
-        if not text or text.lower() == 'nan':
-            continue
-        
-        # ================================================================
-        # DETEKSI: Jalankan fungsi detect_clauses
-        # ================================================================
-        clauses = detect_clauses(text)
-        # Update total counter
-        total_clauses += len(clauses)
-        
-        # ================================================================
-        # SIMPAN: Setiap klausa sebagai 1 baris di results
-        # ================================================================
-        for clause in clauses:
-            results.append({'klausa': clause})
-        
-        # Progress indicator setiap 10 baris
-        if (idx + 1) % 10 == 0:
-            print(f"  {idx + 1}/{len(df)} selesai...")
-    
-    # ================================================================
-    # SAVE: Konversi ke DataFrame dan simpan ke CSV
-    # ================================================================
-    result_df = pd.DataFrame(results)
-    result_df.to_csv(output_csv, index=False, encoding='utf-8')
-    
-    # ================================================================
-    # OUTPUT: Tampilkan ringkasan dan preview
-    # ================================================================
-    print(f"\n✅ Ekstraksi selesai!")
-    print(f"📊 Total: {total_clauses} klausa")
-    print(f"✓ Hasil disimpan ke: {output_csv}")
-    
-    # Preview: 10 baris pertama
-    print(f"\n{'='*60}")
-    print("PREVIEW HASIL (10 baris pertama):")
-    print(f"{'='*60}\n")
-    print(result_df.head(10).to_string(index=False))
-
-
-# ============================================================================
-# FUNGSI: TEST MODE (INTERACTIVE)
-# ============================================================================
-def test_dataset(csv_path=TEST_CSV, n_samples=None):
-    """
-    Test deteksi klausa dengan Dataset CSV (mode interactive).
-    Hasil ditampilkan di terminal, tidak disimpan.
-    
-    Args:
-        csv_path (str): Path file CSV test
-        n_samples (int): Jumlah baris yang diproses (None = semua)
-    """
-    print("\n" + "="*60)
-    print(f"TEST DETEKSI KLAUSA - {csv_path}")
-    print("="*60)
-    
-    # ================================================================
-    # CHECK: Apakah file CSV ada
-    # ================================================================
-    if not os.path.exists(csv_path):
-        print(f"\n❌ File tidak ditemukan: {csv_path}")
-        return
-    
-    # ================================================================
-    # LOAD CSV: Baca dengan berbagai encoding
-    # ================================================================
-    try:
-        df = pd.read_csv(csv_path, encoding='latin1')
-    except:
-        try:
-            df = pd.read_csv(csv_path, encoding='utf-8')
-        except Exception as e:
-            print(f"❌ Error membaca CSV: {e}")
-            return
-    
-    print(f"✓ Dataset loaded: {len(df)} baris")
-    
-    # ================================================================
-    # DETECT COLUMN: Cari kolom teks
-    # ================================================================
-    text_col = None
-    for col in df.columns:
-        if col.lower() in ['komentar', 'comment', 'text', 'ulasan', 'review']:
-            text_col = col
-            break
-    
-    if text_col is None:
-        text_col = df.columns[0]
-    
-    print(f"✓ Menggunakan kolom: {text_col}\n")
-    
-    # ================================================================
-    # DETERMINE: Jumlah sample yang diproses
-    # ================================================================
-    # Jika n_samples None, proses semua baris
-    if n_samples is None:
-        n_samples = len(df)
-    
-    # ================================================================
-    # PROCESS: Loop baris dan tampilkan hasil di terminal
-    # ================================================================
-    # Counter total klausa
-    total_clauses = 0
-    
-    # Loop setiap baris (max n_samples)
-    for idx in range(min(n_samples, len(df))):
-        # Ambil text dari kolom
-        text = str(df.iloc[idx][text_col]).strip()
-        
-        # Skip jika kosong
-        if not text or text.lower() == 'nan':
-            continue
-        
-        # ================================================================
-        # DISPLAY: Tampilkan nomor baris dan text
-        # ================================================================
-        print(f"\n[Baris {idx+1}]")
-        print(f"📝 Teks: {text}")
-        
-        # ================================================================
-        # DETEKSI: Jalankan detect_clauses
-        # ================================================================
-        clauses = detect_clauses(text)
-        total_clauses += len(clauses)
-        
-        # ================================================================
-        # OUTPUT: Tampilkan klausa yang terdeteksi
-        # ================================================================
-        print(f"\n✅ Klausa terdeteksi ({len(clauses)}):")
-        if clauses:
-            # List setiap klausa dengan nomor
-            for i, clause in enumerate(clauses, 1):
-                print(f"   {i}. {clause}")
+        if should_split and current_clause:
+            # Simpan klausa sebelumnya
+            clauses.append(" ".join(current_clause).replace(" ,", ",").replace(" .", "."))
+            current_clause = [tok] # Mulai klausa baru dengan token ini
         else:
-            # Jika tidak ada klausa
-            print("   (Tidak ada klausa terdeteksi)")
-        
-        # Separator antar result
-        print("\n" + "-" * 60)
+            # Gabung ke klausa yang sedang berjalan
+            current_clause.append(tok)
+            
+    # Simpan sisa klausa terakhir
+    if current_clause:
+        clauses.append(" ".join(current_clause).replace(" ,", ",").replace(" .", "."))
+
+    # Filter klausa yang terlalu pendek/sampah (misal cuma ".")
+    final_clauses = [c for c in clauses if len(c) > 2 or re.search(r'\w', c)]
     
-    # ================================================================
-    # SUMMARY: Tampilkan statistik total
-    # ================================================================
-    print(f"\n📊 Total: {total_clauses} klausa terdeteksi dari {min(n_samples, len(df))} baris")
+    return final_clauses
 
-
-# ============================================================================
-# MAIN: USER INTERACTION
-# ============================================================================
+# ==============================
+# MAIN TEST
+# ==============================
 if __name__ == "__main__":
-    # ================================================================
-    # MENU 1: Pilih mode (ekstrak ke CSV atau test interactive)
-    # ================================================================
     print("\n" + "="*60)
-    print("OPSI:")
-    print("1. Ekstrak semua klausa dan simpan ke CSV")
-    print("2. Test interactive (tampilkan di terminal)")
+    print(f"TESTING PADA DATASET: {TEST_CSV}")
     print("="*60)
-    
-    # Minta input user
-    choice = input("\nPilihan (1/2): ").strip()
-    
-    # ================================================================
-    # CHOICE 1: Ekstrak dan simpan ke CSV
-    # ================================================================
-    if choice == "1":
-        # Minta nama file output
-        output_file = input("Nama file output (default: output_extracted_clauses.csv): ").strip()
-        # Jika kosong, gunakan default
-        if not output_file:
-            output_file = "output_extracted_clauses.csv"
-        # Jalankan ekstraksi
-        extract_and_save_clauses(output_csv=output_file)
-    
-    # ================================================================
-    # CHOICE 2: Test mode (interactive)
-    # ================================================================
-    elif choice == "2":
-        # Sub-menu: pilih test option
-        print("\nOPSI TEST:")
-        print("1. Test 10 baris pertama")
-        print("2. Test semua data")
-        print("3. Test dengan jumlah custom")
+
+    if os.path.exists(TEST_CSV):
+        try:
+            df = pd.read_csv(TEST_CSV, encoding='utf-8')
+        except:
+            df = pd.read_csv(TEST_CSV, encoding='latin1')
+            
+        # Cari kolom teks secara otomatis
+        text_col = next((col for col in df.columns if col.lower() in ['komentar', 'ulasan', 'text', 'content', 'review']), df.columns[0])
+        print(f"✓ Kolom Teks: {text_col}")
+
+        # Ambil sampel acak atau 5 teratas
+        subset = df.head(10)
         
-        # Minta input sub-choice
-        test_choice = input("\nPilihan (1/2/3): ").strip()
-        
-        # ================================================================
-        # SUB-CHOICE 1: Test 10 baris
-        # ================================================================
-        if test_choice == "1":
-            test_dataset(n_samples=10)
-        
-        # ================================================================
-        # SUB-CHOICE 2: Test semua baris
-        # ================================================================
-        elif test_choice == "2":
-            test_dataset()
-        
-        # ================================================================
-        # SUB-CHOICE 3: Test custom jumlah baris
-        # ================================================================
-        elif test_choice == "3":
-            try:
-                # Minta input jumlah baris
-                n = int(input("Jumlah baris: ").strip())
-                # Jalankan test dengan n sample
-                test_dataset(n_samples=n)
-            except ValueError:
-                # Jika input bukan angka
-                print("❌ Input tidak valid!")
-        else:
-            # Jika pilihan invalid
-            print("❌ Pilihan tidak valid!")
-    
-    # ================================================================
-    # INVALID CHOICE: Pilihan tidak sesuai
-    # ================================================================
+        for idx, row in subset.iterrows():
+            original = str(row[text_col])
+            print(f"\n[Baris {idx}] Input: \"{original[:100]}...\"")
+            
+            results = detect_clauses_smart(original)
+            
+            for i, res in enumerate(results, 1):
+                print(f"   ✅ Klausa {i}: {res}")
     else:
-        print("❌ Pilihan tidak valid!")
+        # Dummy Test jika CSV tidak ada
+        print("⚠️ File CSV tidak ditemukan. Menggunakan kalimat contoh.")
+        dummy_texts = [
+            "Ga wort it orang 6 dewasa kenak 56 anak kecil di itung juga sangat buruk.",
+            "Tempatnya bagus tapi toiletnya kotor, bau pesing.",
+            "Makanannya enak, murah, dan pelayanannya ramah banget.",
+            "Padahal ga mau masuk ke lokasi wisatanya malah tetep disuruh bayar."
+        ]
+        
+        for txt in dummy_texts:
+            print(f"\nInput: \"{txt}\"")
+            results = detect_clauses_smart(txt)
+            for i, res in enumerate(results, 1):
+                print(f"   ✅ Klausa {i}: {res}")

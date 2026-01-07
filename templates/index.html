@@ -1,610 +1,637 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>J E M A R I</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --bg-color: #ffff;
-      --card-bg-color: #ffffff;
-      --text-color: #212529;
-      --subtle-text-color: #6c757d;
-      --border-color: #dee2e6;
-      --primary-color: #007bff;
-      --primary-hover-color: #0056b3;
-      --positive-color: #28a745;
-      --negative-color: #dc3545;
-      --neutral-color: #6c757d;
-      --shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-    }
-    body, h1, h2, h3, h4, h5, h6, label, button, select, textarea {
-      font-family: 'Montserrat', 'Inter', sans-serif;
-    }
-
-    body.dark-mode {
-      --bg-color: #121212;
-      --card-bg-color: #232323;
-      --text-color: #e9ecef;
-      --subtle-text-color: #adb5bd;
-      --border-color: #495057;
-      --primary-color: #3b82f6;
-      --primary-hover-color: #2563eb;
-    }
-
-    * { 
-      box-sizing: border-box; 
-      margin: 0; 
-      padding: 0; 
-    }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Negative Clause Detection</title>
     
-    body {
-      font-family: 'Inter', sans-serif;
-      background-color: var(--bg-color);
-      color: var(--text-color);
-      line-height: 1.6;
-      transition: background-color 0.3s, color 0.3s;
-    }
-
-    #home {
-      width: 100%;
-      height: 60vh;
-      display : flex;
-      align-items: center;
-      background-color: black;
-      justify-content: center;
-      color: white;
-      text-align: center;
-    }
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
     
-    #predict{
-      width: 100%;
-      height: 80vh;
+    <style>
+        /* --- 1. RESET & GLOBAL STYLES --- */
+        *, *::before, *::after {
+            padding: 0;
+            margin: 0;
+            box-sizing: border-box;
+        }
 
-    }
+        body {
+            font-family: 'Montserrat', 'Inter', sans-serif;
+            background-color: #f9f9f9;
+            overflow-x: hidden; /* Mencegah scroll horizontal */
+        }
 
+        /* --- 2. HOME SECTION (HERO) --- */
+        .home-section {
+            height: 100vh;
+            width: 100vw;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
 
-    #analysis , #predict{
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
+        .home-background {
+            position: absolute;
+            top: 0; 
+            left: 0;
+            width: 100%;
+            height: 100%;
+            /* Ganti url ini dengan path gambar background kamu */
+            background-image: url('../static/assets/bg.svg'); 
+            background-repeat: no-repeat;
+            background-size: cover;
+            background-position: center;
+            z-index: 0;
+        }
 
-    #analysis{
+        .home-gradation {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            /* Gradient Biru ke Hijau Transparan */
+            background-image: linear-gradient(to bottom, #03448C 25% , #14FFC5E0 47%, #00FFC000 101%);
+            opacity: 0.85; /* Sedikit lebih gelap agar teks terbaca */
+        }
 
-      width: 100%;
-      max-height: 100vh;
+        .text-container {
+            position: relative;
+            z-index: 2;
+            width: 70%;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            color: #093C74;
+        }
 
-      overflow-y: auto; 
-      align-items: start;
-      padding: 40px 0;
-    }
+        .text-container h1 {
+            font-size: 54px;
+            font-weight: 700;
+            line-height: 1.2;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
 
-    #home h1 {
-      font-size: 48px;
-      margin-bottom: 16px;
-    }
+        .text-container p {
+            font-size: 18px;
+            max-width: 800px;
+            line-height: 1.6;
+            opacity: 0.9;
+        }
 
-    #home p {
-      font-size: 18px;
-      color: var(--subtle-text-color);
-    }
+        .scroll-icon {
+            margin-top: 40px;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            animation: bounce 2s infinite;
+            /* Placeholder arrow jika gambar tidak ada */
+            border: 2px solid white; 
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
 
-    .nav-links {
-      list-style: none;
-      display: flex;
-      gap: 80px;
-    }
-    .nav-links  li a {
-      color: white;
-      text-decoration: none;
-      font-weight: 500;
-      transition: color 0.2s;
-    }
+        .scroll-icon::after {
+            content: '↓';
+            font-size: 20px;
+            font-weight: bold;
+        }
 
-    main { 
-      max-width: 100vw;   
-      display: flex; 
-      flex-direction: column; 
-     
-    }
-    
-    header { 
-      display: flex; 
-      justify-content: space-between; 
-      align-items: center; 
-      background-color: black; 
-      padding: 10px 10px; 
-      color: white;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-    }
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% {transform: translateY(0);}
+            40% {transform: translateY(-10px);}
+            60% {transform: translateY(-5px);}
+        }
 
-    .container { 
-      display: flex; 
-      background-color: black; 
-      align-items: center; 
-      gap: 20px; 
-      padding: 40px; 
-      height: 80%;
-      margin: 0 40px;
-      border-radius: 20px;
-      color: white;
-    }
+        /* --- 3. ANALYSIS SECTION --- */
+        .analysis-section {
+            min-height: 100vh; /* Minimal setinggi layar */
+            width: 100vw;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            align-items: center;
+            padding: 80px 20px;
+            background-color: #f4f6f8;
+        }
 
-    .container .left-card {
-      color: white; 
-    }
+        .container {
+            width: 100%;
+            max-width: 1000px; /* Batas lebar konten agar rapi */
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
 
-    h1 { 
-      font-size: 28px; 
-    }
-    .card { 
-      background-color: var(--card-bg-color); 
-      border: 1px solid var(--border-color); 
-      border-radius: 12px; 
-      width: 80%;
-      padding: 24px; 
-      box-shadow: var(--shadow); 
-      transition: background-color 0.3s, 
-      border-color 0.3s; 
-    }
-    
-    .card .title {
-      margin-bottom: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      align-items: center;
-    }
+        /* --- 4. DROPDOWN & BUTTON AREA --- */
+        .dropdown-analysis {
+            display: flex;
+            gap: 15px;
+            width: 100%;
+            margin-bottom: 20px;
+            position: relative; 
+            z-index: 100; /* Agar dropdown muncul di atas tabel */
+        }
 
-    label { font-weight: 500; margin-bottom: 8px; display: block; }
-    textarea, select { width: 100%; padding: 12px; font-size: 15px; font-family: inherit; border: 1px solid var(--border-color); border-radius: 8px; background-color: var(--bg-color); color: var(--text-color); margin-bottom: 16px; }
-    textarea { height: 120px; resize: vertical; }
-    button { padding: 12px 20px; font-size: 16px; font-weight: 500; font-family: inherit; cursor: pointer; border: none; border-radius: 8px; background-color: #232323; color: white; transition: background-color 0.2s; }
-    button:hover { background-color: #000; }
-    button:disabled { background-color: var(--subtle-text-color); cursor: not-allowed; }
-    .result { margin-top: 20px; padding: 16px; border-radius: 8px; background-color: var(--bg-color); border: 1px solid var(--border-color); }
-    .sentiment-badge { padding: 4px 10px; border-radius: 20px; font-size: 14px; font-weight: 500; color: white; text-transform: capitalize; }
-    .sentiment-positif { background-color: var(--positive-color); }
-    .sentiment-negatif { background-color: var(--negative-color); }
-    .sentiment-netral { background-color: var(--neutral-color); }
-    .stats-summary { display: flex; flex-wrap: wrap; gap: 20px; margin: 16px 0; font-weight: 500; }
-    
-    /* --- CSS BARU UNTUK KLASTER --- */
-    .review-clusters {
-      display: block;
-    }
+        .custom-dropdown {
+            flex: 1; 
+            position: relative;
+            font-family: 'Inter', sans-serif;
+        }
 
-    .cluster-column {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    
-    .cluster-column h3 {
-        margin-bottom: 8px;
-    }
+        .dropdown-selected {
+            background-color: white;
+            padding: 14px 20px;
+            border-radius: 8px; 
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            border: 1px solid transparent;
+            transition: all 0.3s ease;
+            color: #888;
+            font-size: 15px;
+        }
 
-    .review-item {
-      padding: 12px;
-      border-radius: 8px;
-      background-color: var(--card-bg-color);
-      border: 1px solid var(--border-color);
-    }
-    
-    .review-item p {
-      color: var(--subtle-text-color);
-      margin-top: 8px;
-      font-size: 14px;
-    }
+        .dropdown-selected:hover {
+            border-color: #b0c4de;
+        }
 
-    /* Media query untuk membuat responsif di layar kecil */
-    @media (max-width: 800px) {
-      .review-clusters {
-        grid-template-columns: 1fr; /* 1 kolom di mobile */
-      }
-      main {
-        max-width: 100%;
-        padding: 10px;
-      }
-    }
-    /* --- END OF CSS BARU --- */
+        /* State ketika teks sudah dipilih */
+        .dropdown-selected span.active-text {
+            color: #333;
+            font-weight: 600;
+        }
 
-    /* ... (CSS untuk dark mode toggle tidak berubah) ... */
-    .theme-switch-wrapper { 
-      display: flex; 
-      align-items: center; 
-      gap: 8px; 
-    }
-    .theme-switch { display: inline-block; height: 24px; position: relative; width: 48px; }
-    .theme-switch input { display:none; }
-    .slider { background-color: #d8d8d8; bottom: 0; cursor: pointer; left: 0; position: absolute; right: 0; top: 0; transition: .4s; }
-    .slider:before { background-color: #fff; bottom: 4px; content: ""; height: 16px; left: 4px; position: absolute; transition: .4s; width: 16px; }
-    input:checked + .slider { background-color: var(--primary-color); }
-    input:checked + .slider:before { transform: translateX(24px); }
-    .slider.round { border-radius: 24px; }
-    .slider.round:before { border-radius: 50%; }
+        .arrow-icon {
+            font-size: 10px;
+            color: #aaa;
+            transition: transform 0.3s;
+        }
+        
+        /* Putar panah saat dropdown terbuka */
+        .custom-dropdown.open .arrow-icon {
+            transform: rotate(180deg);
+        }
 
-    table td, table th {
-      white-space: normal !important;
-      overflow: visible !important;
-      text-overflow: unset !important;
-      word-break: break-word;
-      vertical-align: top;
-      padding: 12px 12px !important;
-      font-size: 1rem;
-    }
-    table th {
-      min-width: 48px;
-      font-size: 1.05rem;
-      text-align: left;
-    }
-    table td:first-child {
-      min-width: 40px;
-      max-width: 60px;
-      text-align: center;
-    }
-  </style>
+        /* List Pilihan */
+        .dropdown-options {
+            display: none; 
+            position: absolute;
+            top: 115%; /* Jarak sedikit dari input */
+            left: 0;
+            width: 100%;
+            max-height: 300px; /* Scroll jika terlalu panjang */
+            overflow-y: auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            padding: 5px 0;
+            z-index: 999;
+        }
+
+        .dropdown-options.show-dropdown {
+            display: block;
+        }
+
+        .option-item {
+            padding: 12px 20px;
+            cursor: pointer;
+            color: #333;
+            font-size: 15px;
+            transition: background 0.2s;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .option-item:last-child {
+            border-bottom: none;
+        }
+
+        .option-item:hover {
+            background-color: #f0f7ff;
+            color: #1a428a;
+        }
+
+        .option-item.active {
+            border-left: 4px solid #3B82F6; 
+            background-color: #fff;
+            font-weight: 600;
+            color: #1a428a;
+        }
+
+        /* Tombol Analysis */
+        .btn-analysis {
+            background-color: #1a428a;
+            color: white;
+            border: none;
+            padding: 0 40px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 16px;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(26, 66, 138, 0.2);
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        .btn-analysis:hover {
+            background-color: #143570;
+            transform: translateY(-1px);
+        }
+
+        .btn-analysis:disabled {
+            background-color: #cbd5e1;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .jumlah-komentar {
+            color: #64748b;
+            font-size: 14px;
+            margin-bottom: 12px;
+            font-weight: 500;
+        }
+
+       /* --- 5. TABLE STYLES (UPDATED ZEBRA) --- */
+        /* --- 5. TABLE STYLES (UPDATED: NO GAP & CUSTOM ZEBRA) --- */
+        .table-container {
+            width: 100%;
+            background-color: white; 
+            border-radius: 12px; /* Radius hanya di container utama */
+            overflow: hidden; /* Agar sudut tabel ikut membulat */
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse; /* MENYATUKAN TABEL (HAPUS GAP) */
+            border-spacing: 0;
+        }
+
+        thead tr {
+            background-image: linear-gradient(to right, #66C8B8 0%, #5C86C8 100%);
+            color: white;
+            text-align: left;
+        }
+
+        th {
+            padding: 20px 25px;
+            font-weight: 600;
+            font-size: 16px;
+            width: 50%;
+            border: none;
+        }
+
+        td {
+            padding: 24px 25px;
+            vertical-align: top;
+            font-size: 15px;
+            line-height: 1.6;
+            color: #333;
+            border: none; /* Hapus border pemisah */
+        }
+
+        /* --- LOGIKA WARNA KHUSUS (SESUAI REQUEST) --- */
+        
+        /* BARIS GANJIL (Row 1, 3, 5...) */
+        tbody tr:nth-child(odd) td:first-child {
+            background-color: #9FEEDE; /* Hijau Request */
+        }
+        tbody tr:nth-child(odd) td:last-child {
+            background-color: #6DAEF6; /* Biru Request */
+        }
+
+        /* BARIS GENAP (Row 2, 4, 6...) */
+        tbody tr:nth-child(even) td:first-child {
+            background-color: #CCFFF5; /* Hijau Muda Request */
+        }
+        tbody tr:nth-child(even) td:last-child {
+            background-color: #94C7FF; /* Biru Muda Request */
+        }
+
+        /* --- 6. BADGES (LABEL KELUHAN) --- */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 8px 14px; /* Sedikit lebih besar */
+            border-radius: 6px;
+            color: white;
+            font-size: 13px;
+            margin-bottom: 8px;
+            margin-right: 6px;
+            font-weight: 600;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+            letter-spacing: 0.3px;
+        }
+
+        /* Warna Badge untuk Baris Ganjil (Biru Tua/Indigo) */
+        .badge-dark {
+            background-color: #475D8F; 
+        }
+
+        /* Warna Badge untuk Baris Genap (Biru Laut/Medium) */
+        .badge-light {
+            background-color: #6C8CD5; 
+        }
+
+        /* --- 7. UTILITY & LOADING STATES --- */
+        .loading-text {
+            padding: 15px;
+            text-align: center;
+            font-size: 13px;
+            color: #888;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #94a3b8;
+            font-style: italic;
+        }
+
+        /* Spinner Loading */
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3B82F6;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Scrollbar Halus untuk Tabel/Dropdown */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #ccc; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #aaa; 
+        }
+    </style>
 </head>
 <body>
 
-  <main>
-    <header>
-      <h1>J E M A R I</h1>
+    <section class="home-section">
+        <div class="home-background"></div>
+        <div class="home-gradation"></div>
 
-
-
-      <div class="theme-switch-wrapper">
-        <span id="theme-label">Light Mode</span>
-        <label class="theme-switch">
-          <input type="checkbox" id="theme-toggle">
-          <span class="slider round"></span>
-        </label>
-      </div>
-    </header>
-
-    <section id="home" >
-      <div>
-        <h1 id="typewriter">Sistem Ekstraksi Keluhan Tempat Wisata Jember</h1>
-        <p>Menganalisis ulasan pengunjung tempat wisata di Jember untuk mengekstraksi keluhan utama menggunakan model IndoBERT dan POS Tagging.</p>
-
-      </div>
-    </section>
-
-    <section id="analysis" >
-        <div class="card">
-          <div class="title">
-              <h2 >Ekstraksi Keluhan Ulasan Negatif</h2>
-              <p style="color:var(--subtle-text-color); margin-bottom: 20px;">
-                Pilih destinasi wisata untuk melihat daftar keluhan yang terdeteksi dari ulasan negatif pengunjung.
-              </p>
-          </div>
-
-          <label for="wisataSelect">Pilih Destinasi Wisata:</label>
-          <select id="wisataSelect"></select>
-          <button id="showExtractBtn" style="margin-left:16px;">Tampilkan Ekstraksi Keluhan</button>
-          <div id="wisataOutput" class="result" style="display:none;"></div>
+        <div class="text-container">
+            <h1>Sistem Ekstraksi Keluhan<br>Tempat Wisata Jember</h1>
+            <p>
+                Menganalisis ulasan pengunjung tempat wisata di Jember secara otomatis 
+                untuk mendeteksi klausa negatif dan keluhan utama menggunakan teknologi AI.
+            </p>
+            
+            <div class="scroll-icon" onclick="document.querySelector('.analysis-section').scrollIntoView({behavior: 'smooth'})">
+                </div>
         </div>
     </section>
 
-  </main>
+    <section class="analysis-section">
+       <div class="container">
+            
+            <div class="dropdown-analysis">
+                
+                <div class="custom-dropdown" id="dropdownWrapper">
+                    <div class="dropdown-selected" onclick="toggleDropdown()">
+                        <span id="selected-text">Pilih Destinasi Wisata . . .</span>
+                        <span class="arrow-icon">▼</span>
+                    </div>
+                    
+                    <div class="dropdown-options" id="myDropdown">
+                        <div class="loading-text">Sedang memuat data wisata...</div>
+                    </div>
+                </div>
 
-  <script>
-    // ================================================================
-    // DARK MODE TOGGLE LOGIC
-    // Ambil elemen DOM untuk dark mode
-    // ================================================================
-    const themeLabel = document.getElementById('theme-label');  // Label text "Light Mode" / "Night Mode"
-    const themeToggle = document.getElementById('theme-toggle');  // Checkbox input untuk toggle
-    
-    // Ambil tema yang tersimpan dari localStorage
-    const currentTheme = localStorage.getItem('theme');
-    
-    // Jika sebelumnya dark mode, apply dark-mode class dan uncheck toggle
-    if (currentTheme === 'dark') {
-      document.body.classList.add('dark-mode');  // Tambah class dark-mode ke body
-      themeToggle.checked = false;  // Uncheck checkbox (dark mode = unchecked)
-      themeLabel.textContent = 'Night Mode';  // Update label text
-    } else {
-      // Otherwise light mode (default)
-      document.body.classList.remove('dark-mode');  // Remove class jika ada
-      themeToggle.checked = true;  // Check checkbox (light mode = checked)
-      themeLabel.textContent = 'Light Mode';  // Update label text
-    }
-    
-    // Event listener: ketika toggle checkbox diubah
-    themeToggle.addEventListener('change', () => {
-      if (themeToggle.checked) {
-        // Jika checkbox di-check: Light Mode
-        document.body.classList.remove('dark-mode');  // Hapus class dark-mode
-        localStorage.setItem('theme', 'light');  // Simpan preferensi ke localStorage
-        themeLabel.textContent = 'Light Mode';  // Update label
-      } else {
-        // Jika checkbox unchecked: Dark Mode
-        document.body.classList.add('dark-mode');  // Tambah class dark-mode
-        localStorage.setItem('theme', 'dark');  // Simpan preferensi ke localStorage
-        themeLabel.textContent = 'Night Mode';  // Update label
-      }
-    });
+                <button class="btn-analysis" id="btnAnalyze" disabled>Analysis</button>
+            </div>
 
-    // ================================================================
-    // WISATA DROPDOWN - LOAD LIST DARI API
-    // ================================================================
-    const wisataSelect = document.getElementById('wisataSelect');  // Element select dropdown
-    const analyzeBtn = document.getElementById('analyzeBtn');  // (Unused di HTML saat ini)
-    const wisataOutput = document.getElementById('wisataOutput');  // Element untuk menampilkan hasil
+            <p class="jumlah-komentar" id="statsDisplay">Silakan pilih wisata dan klik tombol Analysis</p>
 
-    // Fungsi: Load daftar wisata dari endpoint /wisata_list
-    async function loadWisataList() {
-      // Fetch GET request ke /wisata_list
-      const resp = await fetch('/wisata_list');
-      // Parse JSON response
-      const data = await resp.json();
-      
-      // Clear dropdown dan tambah placeholder option
-      wisataSelect.innerHTML = '<option value="" disabled selected>-- Pilih salah satu --</option>';
-      
-      // Loop setiap wisata dari array dan buat option element
-      data.wisata.forEach(w => {
-        const opt = document.createElement('option');  // Buat elemen <option>
-        opt.value = w;  // Set value attribute
-        opt.textContent = w;  // Set teks yang ditampilkan
-        wisataSelect.appendChild(opt);  // Tambahkan ke dropdown
-      });
-    }
-    
-    // Jalankan loadWisataList saat script pertama kali load
-    loadWisataList();
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Komentar Negatif</th>
+                            <th>Fokus Keluhan</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultBody">
+                        <tr>
+                            <td colspan="2" class="empty-state" style="background: white;">
+                                Belum ada data analisis yang ditampilkan.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
 
-    // ================================================================
-    // DISPLAY WISATA RESULTS
-    // Fungsi: Render hasil analisis (keluhan, statistik) ke HTML
-    // ================================================================
-    function displayWisataResults(data) {
-        // Clear isi output container sebelumnya
-        wisataOutput.innerHTML = '';
-        // Tampilkan output container
-        wisataOutput.style.display = 'block';
-        
-        // ================================================================
-        // BUILD TABLE (Daftar Keluhan dengan styling)
-        // ================================================================
-        // Buat elemen table
-        const table = document.createElement('table');
-        table.style.width = '100%';
-        table.style.borderCollapse = 'collapse';  // Hilangkan space antar cell
-        table.style.marginTop = '18px';  // Margin atas dari header
-        
-        // Isi table dengan HTML string (header + body rows)
-        table.innerHTML = `
-          <!-- TABLE HEADER (Baris judul dengan gradient background) -->
-          <thead style="background:linear-gradient(90deg,#232323 0%,#007bff 100%);color:#fff;">
-            <tr>
-              <th style="padding:12px 8px;border-radius:8px 0 0 8px;">No</th>
-              <th style="padding:12px 8px;">Ulasan Negatif</th>
-              <th style="padding:12px 8px;border-radius:0 8px 8px 0;">Fokus Keluhan</th>
-            </tr>
-          </thead>
-          <!-- TABLE BODY (Data rows - generate dari array complaints) -->
-          <tbody>
-            ${data.complaints && data.complaints.length > 0 ?
-              // Jika ada keluhan dalam array, map setiap item menjadi <tr>
-              data.complaints.map((c,i) => `
-                <!-- Alternate background color untuk setiap row (striped) -->
-                <tr style="background:${i%2===0?'#f8f9fa':'#e9ecef'};">
-                  <td style="padding:10px 8px;text-align:center;font-weight:600;">${c.No}</td>
-                  <td style="padding:10px 8px;">${c["Ulasan Negatif"]}</td>
-                  <!-- Warna keluhan merah (negative-color) -->
-                  <td style="padding:10px 8px;color:#dc3545;font-weight:600;">${c.Keluhan}</td>
-                </tr>
-              `).join('') :
-              // Jika tidak ada keluhan, tampilkan pesan
-              `<tr><td colspan="3" style="padding:12px;text-align:center;color:var(--subtle-text-color);">Tidak ada keluhan terdeteksi.</td></tr>`
+       </div>
+    </section>
+
+    <script>
+        // --- VARIABLES ---
+        let selectedWisata = null; 
+        const dropdownWrapper = document.getElementById('dropdownWrapper');
+        const dropdownOptions = document.getElementById('myDropdown');
+        const selectedText = document.getElementById('selected-text');
+        const btnAnalyze = document.getElementById('btnAnalyze');
+        const resultBody = document.getElementById('resultBody');
+        const statsDisplay = document.getElementById('statsDisplay');
+
+        // --- 1. LOAD DATA WISATA DARI BACKEND (Saat halaman dimuat) ---
+        async function loadWisataList() {
+            try {
+                // Pastikan endpoint '/wisata_list' sesuai dengan backend Flask kamu
+                const resp = await fetch('/wisata_list'); 
+                const data = await resp.json();
+                
+                // Bersihkan dropdown
+                dropdownOptions.innerHTML = '';
+
+                if (data.wisata && data.wisata.length > 0) {
+                    data.wisata.forEach(wisataName => {
+                        // Buat elemen div untuk setiap opsi
+                        const option = document.createElement('div');
+                        option.className = 'option-item';
+                        option.textContent = wisataName;
+                        // Event saat opsi diklik
+                        option.onclick = () => selectOption(wisataName, option);
+                        dropdownOptions.appendChild(option);
+                    });
+                } else {
+                    dropdownOptions.innerHTML = '<div class="loading-text" style="color:red;">Data wisata kosong.</div>';
+                }
+            } catch (err) {
+                console.error("Error fetching list:", err);
+                dropdownOptions.innerHTML = '<div class="loading-text" style="color:red;">Gagal koneksi ke server.</div>';
             }
-          </tbody>
-        `;
-        
-        // ================================================================
-        // BUILD HEADER (Judul Hasil Analisis)
-        // ================================================================
-        // Buat elemen h3 untuk judul hasil
-        const header = document.createElement('h3');
-        header.textContent = `Daftar Keluhan Negatif: ${data.wisata}`;  // Judul dengan nama wisata
-        header.style.marginBottom = '18px';
-        header.style.fontWeight = '700';  // Bold
-        header.style.color = '#007bff';  // Warna biru
-        
-        // ================================================================
-        // BUILD SUMMARY (Ringkasan Statistik Sentimen)
-        // ================================================================
-        // Buat container untuk statistik
-        const summary = document.createElement('div');
-        summary.className = 'stats-summary';  // Gunakan CSS class dari style
-        // Isi summary dengan statistik
-        summary.innerHTML = `
-            <!-- Total jumlah review -->
-            <span>Total Review: <strong>${data.total}</strong></span>
-            <!-- Jumlah review negatif (warna merah) -->
-            <span style="color:var(--negative-color)">Negatif: <strong>${data.negatif}</strong></span>
-        `;
-        
-        // Append semua elemen ke wisataOutput (header, summary, table)
-        wisataOutput.append(header, summary, table);
-    }
-
-    // ================================================================
-    // BUTTON EVENT: "Tampilkan Ekstraksi Keluhan"
-    // Trigger analisis ketika tombol diklik
-    // ================================================================
-    let lastWisata = null;  // Cache: nama wisata yang sudah dianalisis
-    let lastData = null;    // Cache: hasil analisis yang sudah diterima
-    
-    // Ambil elemen button
-    const showExtractBtn = document.getElementById('showExtractBtn');
-    
-    // Event listener: ketika tombol diklik
-    showExtractBtn.addEventListener('click', async () => {
-      // Ambil nilai wisata dari dropdown
-      const wisata = wisataSelect.value;
-      
-      // Validasi: pastikan wisata dipilih (value tidak kosong)
-      if (!wisata) return alert('Pilih destinasi wisata dulu!');
-      
-      // Tampilkan output container dengan loading spinner
-      wisataOutput.style.display = 'block';
-      wisataOutput.innerHTML = `
-        <div style="text-align:center;padding:32px 0;font-size:1.2rem;color:var(--primary-color);font-weight:600;">
-          <!-- Spinner animasi (CSS animation: spin) -->
-          <span class="loader" style="display:inline-block;width:28px;height:28px;border:4px solid #007bff;border-top:4px solid #fff;border-radius:50%;animation:spin 1s linear infinite;vertical-align:middle;margin-right:12px;"></span>
-          <!-- Loading text -->
-          Memproses ekstraksi keluhan...
-        </div>
-      `;
-      
-      try {
-        // ================================================================
-        // CACHE CHECK
-        // Jika wisata yang sama sudah dianalisis sebelumnya, gunakan cache
-        // ================================================================
-        if (lastWisata === wisata && lastData) {
-          // Gunakan data cache (tidak perlu fetch lagi)
-          setTimeout(() => displayWisataResults(lastData), 500);  // Delay 500ms untuk UX
-          return;  // Exit fungsi (jangan fetch)
         }
-        
-        // ================================================================
-        // FETCH ANALYSIS
-        // Kirim POST request ke endpoint /analisis_wisata
-        // ================================================================
-        const resp = await fetch('/analisis_wisata', {
-          method: 'POST',  // HTTP method POST
-          headers: { 'Content-Type': 'application/json' },  // Header: content type JSON
-          body: JSON.stringify({ wisata })  // Body: JSON object dengan nama wisata
+
+        // Jalankan fungsi load saat DOM siap
+        window.addEventListener('DOMContentLoaded', loadWisataList);
+
+        // --- 2. FUNGSI DROPDOWN ---
+        function toggleDropdown() {
+            dropdownOptions.classList.toggle("show-dropdown");
+            dropdownWrapper.classList.toggle("open");
+        }
+
+        function selectOption(text, element) {
+            // Update Teks Pilihan
+            selectedText.innerText = text;
+            selectedText.classList.add('active-text'); 
+            
+            // Simpan data
+            selectedWisata = text;
+
+            // Efek Visual Aktif (Bold/Biru di list)
+            document.querySelectorAll('.option-item').forEach(el => el.classList.remove('active'));
+            element.classList.add('active');
+            
+            // Aktifkan tombol Analysis
+            btnAnalyze.disabled = false;
+
+            // Tutup dropdown
+            dropdownOptions.classList.remove("show-dropdown");
+            dropdownWrapper.classList.remove("open");
+        }
+
+        // Tutup dropdown jika user klik di luar area dropdown
+        window.onclick = function(event) {
+            if (!dropdownWrapper.contains(event.target)) {
+                dropdownOptions.classList.remove('show-dropdown');
+                dropdownWrapper.classList.remove("open");
+            }
+        }
+
+        // --- 3. LOGIKA ANALYSIS (FETCH DATA) ---
+        btnAnalyze.addEventListener('click', async () => {
+            if (!selectedWisata) return;
+
+            // Tampilkan Loading State di Tabel
+            resultBody.innerHTML = `
+                <tr>
+                    <td colspan="2" style="background:white; text-align:center; padding: 60px;">
+                        <div class="spinner"></div>
+                        <p style="color:#666;">Sedang menganalisis ulasan <b>${selectedWisata}</b>...</p>
+                    </td>
+                </tr>
+            `;
+            statsDisplay.innerText = "Memproses data...";
+
+            try {
+                // Request ke Backend Flask
+                const resp = await fetch('/analisis_wisata', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ wisata: selectedWisata })
+                });
+
+                const data = await resp.json();
+
+                if (data.error) {
+                    renderError(data.error);
+                } else {
+                    renderTable(data);
+                }
+
+            } catch (err) {
+                renderError("Terjadi kesalahan koneksi. Pastikan server berjalan.");
+            }
         });
-        
-        // Parse JSON response dari server
-        const data = await resp.json();
-        
-        // ================================================================
-        // ERROR HANDLING
-        // Check apakah response OK (status 200) atau ada error field
-        // ================================================================
-        if (!resp.ok || data.error) {
-          // Tampilkan pesan error
-          wisataOutput.innerHTML = `<b>Error:</b> ${data.error || 'Gagal melakukan analisis'}`;
-        } else {
-          // Sukses: simpan ke cache dan display hasil
-          lastWisata = wisata;  // Simpan nama wisata ke cache
-          lastData = data;  // Simpan data hasil ke cache
-          
-          // Display hasil dengan delay (untuk UX yang smooth)
-          setTimeout(() => displayWisataResults(data), 500);
-        }
-      } catch (err) {
-        // Catch network error (fetch failed, server down, dll)
-        wisataOutput.innerHTML = '<b>Network error:</b> ' + String(err);
-      }
-    });
 
-    // ================================================================
-    // CSS ANIMATION - LOADER SPINNER
-    // Tambahkan @keyframes spin untuk animasi loader
-    // ================================================================
-    const style = document.createElement('style');  // Buat elemen <style>
-    // Define animasi spin: rotate 0 derajat -> 360 derajat
-    style.innerHTML = `@keyframes spin {0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}`;
-    // Tambahkan ke <head>
-    document.head.appendChild(style);
+        // --- 4. RENDER TABEL & HASIL (UPDATED) ---
+        function renderTable(data) {
+            // 1. Update Statistik
+            statsDisplay.innerHTML = `
+                Total Ulasan: <b>${data.total}</b> &nbsp;|&nbsp; 
+                Negatif: <b style="color:#E02424">${data.negatif}</b>
+            `;
 
-    // ================================================================
-    // DROPDOWN CHANGE EVENT
-    // Jalankan analisis otomatis ketika dropdown diubah
-    // ================================================================
-    wisataSelect.addEventListener('change', async () => {
-      // Ambil nilai wisata yang dipilih di dropdown
-      const wisata = wisataSelect.value;
-      
-      // Jika tidak ada yang dipilih (kosong), return / skip
-      if (!wisata) return;
-      
-      // Clear output sementara (sembunyikan dan clear isi)
-      wisataOutput.style.display = 'none';
-      wisataOutput.innerHTML = '';
-      
-      try {
-        // Fetch ke /analisis_wisata dengan nama wisata
-        const resp = await fetch('/analisis_wisata', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ wisata })
-        });
-        
-        // Parse JSON response
-        const data = await resp.json();
-        
-        // ================================================================
-        // DISPLAY RESULT
-        // Check apakah response OK atau ada error
-        // ================================================================
-        if (!resp.ok || data.error) {
-          // Jika error, tampilkan pesan error
-          wisataOutput.innerHTML = `<b>Error:</b> ${data.error || 'Gagal melakukan analisis'}`;
-          wisataOutput.style.display = 'block';  // Tampilkan error message
-        } else {
-          // Jika sukses, display hasil analisis dengan tabel dan statistik
-          displayWisataResults(data);
-        }
-      } catch (err) {
-        // Catch network error
-        wisataOutput.innerHTML = '<b>Network error:</b> ' + String(err);
-        wisataOutput.style.display = 'block';  // Tampilkan error message
-      }
-    });
+            // 2. Bersihkan tabel
+            resultBody.innerHTML = '';
 
-    // ================================================================
-    // TYPEWRITER EFFECT
-    // Fungsi: Animasi mengetik untuk title hero section
-    // ================================================================
-    function typeWriterEffect(element, text, speed=32) {
-      // Clear elemen text sebelumnya
-      element.textContent = '';
-      // Counter: posisi karakter saat ini
-      let i = 0;
-      
-      // Recursive function: ketik satu karakter per iterasi
-      function typing() {
-        // Jika masih ada karakter yang belum diketik
-        if (i < text.length) {
-          // Append karakter berikutnya ke element
-          element.textContent += text.charAt(i);
-          // Increment counter
-          i++;
-          // Delay sebelum ketik karakter berikutnya (dalam millisecond)
-          setTimeout(typing, speed);
+            if (data.complaints && data.complaints.length > 0) {
+                // Loop data
+                data.complaints.forEach((item, index) => {
+                    const row = document.createElement('tr');
+                    
+                    // --- LOGIKA WARNA BADGE SELANG-SELING ---
+                    // Jika baris Genap (index 0, 2, 4.. -> Manusia liatnya baris 1, 3, 5), pakai Dark
+                    // Jika baris Ganjil (index 1, 3, 5..), pakai Light
+                    // (Index dimulai dari 0)
+                    const badgeClass = index % 2 === 0 ? 'badge-dark' : 'badge-light';
+
+                    // Kolom 1: Ulasan
+                    const colUlasan = document.createElement('td');
+                    colUlasan.textContent = item["Ulasan Negatif"]; 
+
+                    // Kolom 2: Badge Keluhan
+                    const colKeluhan = document.createElement('td');
+                    
+                    const rawKeluhan = item["Keluhan"] || "";
+                    const listKeluhan = rawKeluhan.split(',');
+
+                    listKeluhan.forEach(text => {
+                        const cleanText = text.trim();
+                        if (cleanText.length > 0) {
+                            const badge = document.createElement('span');
+                            // Terapkan class warna yang sudah ditentukan tadi
+                            badge.className = `badge ${badgeClass}`;
+                            badge.textContent = cleanText;
+                            colKeluhan.appendChild(badge);
+                        }
+                    });
+
+                    row.appendChild(colUlasan);
+                    row.appendChild(colKeluhan);
+                    resultBody.appendChild(row);
+                });
+            } else {
+                resultBody.innerHTML = `
+                    <tr>
+                        <td colspan="2" class="empty-state" style="background:white; border-radius:8px;">
+                            Tidak ditemukan keluhan negatif.
+                        </td>
+                    </tr>
+                `;
+            }
         }
-        // Jika semua karakter sudah diketik, fungsi berhenti (return)
-      }
-      
-      // Start typing animation
-      typing();
-    }
-    
-    // Jalankan typewriter effect saat DOM selesai load
-    window.addEventListener('DOMContentLoaded', () => {
-      // Ambil elemen dengan id "typewriter"
-      const typewriter = document.getElementById('typewriter');
-      // Check apakah elemen ada
-      if(typewriter) {
-        // Jalankan efek mengetik dengan text dan speed 32ms per karakter
-        typeWriterEffect(typewriter, 'Sistem Ekstraksi Keluhan Tempat Wisata Jember', 32);
-      }
-    });
-  </script>
+
+        function renderError(msg) {
+            statsDisplay.innerText = "Gagal Memuat Data";
+            resultBody.innerHTML = `
+                <tr>
+                    <td colspan="2" class="empty-state" style="color:#E02424; background:white;">
+                        Error: ${msg}
+                    </td>
+                </tr>
+            `;
+        }
+    </script>
 </body>
 </html>

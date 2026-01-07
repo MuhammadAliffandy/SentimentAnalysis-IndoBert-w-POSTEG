@@ -1,6 +1,6 @@
 # ============================================================================
 # APP.PY - SISTEM EKSTRAKSI KELUHAN
-# Fitur: Hybrid CBD + Sentiment + User Defined Algorithm (POS + Regex Clean)
+# Fitur: Hybrid CBD + Sentiment + User Defined Algorithm (POS + Regex Clean + Normalization)
 # ============================================================================
 
 import torch
@@ -15,57 +15,111 @@ import re
 from collections import Counter
 
 # ============================================================================
-# 1. KONFIGURASI
+# 1. KONFIGURASI & LOADER
 # ============================================================================
 
-# --- Path Model ---
-SENTIMENT_MODEL_PATH = "./saved_model"
-LABEL_ENCODER_PATH = "label_encoder.pkl"
+# --- Path Model & Data ---
+SENTIMENT_MODEL_PATH = "./model/saved_model"
+LABEL_ENCODER_PATH = "./model/label_encoder.pkl"
 MODEL_NAME = "indobenchmark/indobert-base-p1"
 POS_MODEL_NAME = "w11wo/indonesian-roberta-base-posp-tagger"
-CBD_BERT_PATH = "indobert_finetuned_clause.pt"
-CBD_CRF_PATH = "indobert_sklearn_crf_clause_model.pkl"
+CBD_BERT_PATH = "./model/indobert_finetuned_clause.pt"
+CBD_CRF_PATH = "./model/indobert_sklearn_crf_clause_model.pkl"
+
+# --- CONFIG FILE TEXT ---
+NEGATIVE_KEYWORDS_FILE = "./model/negative.txt" # Format: 1 kata per baris (enter)
+POSITIVE_KEYWORDS_FILE = "./model/positive.txt" # Format: 1 kata per baris (enter)
+STOP_KELUHAN_FILE = "./model/badword.txt"       # Format: Dipisah koma (kata1, kata2)
 
 MAX_LEN_CBD = 128
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# --- STOP WORDS KELUHAN (Sesuai Request) ---
-# Kata-kata ini diabaikan jika muncul sebagai kandidat kata negatif
-STOP_KELUHAN = {"membuat", "datang", "memberi", "memberikan", "mengambil", "menjadi", "bikin"}
+# --- MODIFIER WORDS (Penentu Konteks) ---
+NEGATORS = {"tidak", "kurang", "belum", "bukan", "enggak", "gak", "tak", "jangan"}
 
-# --- BADWORDS / NEGATIVE KEYWORDS ---
-# (Disarankan hardcode disini agar tidak perlu file eksternal badword.txt saat run server)
-NEGATIVE_KEYWORDS = {
-    "kotor", "bau", "rusak", "mahal", "lambat", "lama", "lelet", "antri", 
-    "ramai", "penuh", "sesak", "panas", "gerah", "berisik", "bising",
-    "jelek", "buruk", "parah", "kecewa", "menyesal", "kapok", "kasar",
-    "jutek", "sinis", "sombong", "angkuh", "curam", "licin", "gelap",
-    "remang", "kumuh", "jorok", "bocor", "mati", "padam", "hilang",
-    "dicuri", "copet", "pungli", "susah", "sulit", "ribet", "membingungkan",
-    "kurang", "tidak", "gak", "enggak", "jangan", "bukan", "hancur", "berantakan",
-    "sampah", "berserakan", "liar", "gatal", "keruh", "berlumut", "amis",
-    "terbengkalai", "usang", "rapuh", "karatan", "bolong", "robek", 
-    "berbayar", "bayar", "dikit", "sedikit", "kecil", "sempit", "mahalnya",
-    "berlumpur", "banjir", "longsor", "retak", "pecah", "mampet", "hilang",
-    "tikus", "kecoa", "nyamuk", "lalat", "semut"
+# --- KAMUS NORMALISASI (SLANG -> BAKU) ---
+# Dimuat global agar bisa dipakai di cleaning
+key_norm = {
+    "yg": "yang", "gak": "tidak", "ga": "tidak", "g": "tidak", "nggak": "tidak",
+    "kalo": "kalau", "klo": "kalau", "kl": "kalau",
+    "bgt": "banget", "bg": "banget",
+    "dgn": "dengan", "dg": "dengan",
+    "krn": "karena", "karna": "karena",
+    "tdk": "tidak", "tak": "tidak",
+    "jd": "jadi", "jdi": "jadi",
+    "bkn": "bukan",
+    "sdh": "sudah", "udah": "sudah", "dh": "sudah",
+    "blm": "belum",
+    "tp": "tapi", "tpi": "tapi",
+    "sy": "saya", "aku": "saya", "gue": "saya", "gw": "saya",
+    "km": "kamu", "lu": "kamu", "loe": "kamu",
+    "bgs": "bagus", "good": "bagus",
+    "bad": "jelek", "worse": "buruk",
+    "jg": "juga", "utk": "untuk",
+    "bnyak": "banyak", "bnyk": "banyak",
+    "d": "di", "org": "orang", "dlm": "dalam",
+    "aja": "saja", "ae": "saja",
+    "bs": "bisa", "bisa": "bisa",
+    "sm": "sama", "dr": "dari",
+    "tmp": "tempat", "tmpt": "tempat",
+    "jln": "jalan", "skrg": "sekarang",
+    "tau": "tahu", "msh": "masih",
+    "sngt": "sangat", "thx": "terima kasih", "makasih": "terima kasih"
 }
 
+# --- FUNGSI LOADER FILES ---
+def load_keywords_newline(filepath):
+    keywords = set()
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                for line in f:
+                    word = line.strip().lower()
+                    if word: keywords.add(word)
+            print(f"✓ Berhasil memuat {len(keywords)} kata dari {filepath}")
+        except Exception as e:
+            print(f"✗ Gagal membaca file {filepath}: {e}")
+    else:
+        print(f"⚠ File {filepath} tidak ditemukan! Menggunakan set kosong.")
+    return keywords
+
+def load_keywords_comma(filepath):
+    keywords = set()
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+                items = content.split(',')
+                for item in items:
+                    word = item.strip().lower()
+                    if word: keywords.add(word)
+            print(f"✓ Berhasil memuat {len(keywords)} stop words dari {filepath}")
+        except Exception as e:
+            print(f"✗ Gagal membaca file {filepath}: {e}")
+    else:
+        return {"membuat", "datang", "memberi", "memberikan", "mengambil", "menjadi", "bikin"}
+    return keywords
+
+# --- LOAD VARIABLES ---
+NEGATIVE_KEYWORDS = load_keywords_newline(NEGATIVE_KEYWORDS_FILE)
+POSITIVE_KEYWORDS = load_keywords_newline(POSITIVE_KEYWORDS_FILE)
+STOP_KELUHAN = load_keywords_comma(STOP_KELUHAN_FILE)
+
+
 # ============================================================================
-# 2. FUNGSI PREPROCESSING (SESUAI REQUEST)
+# 2. FUNGSI PREPROCESSING & NORMALISASI
 # ============================================================================
 def clean_text_user(text):
-    """
-    Membersihkan teks sesuai spesifikasi user:
-    1. Lowercase
-    2. Hapus URL
-    3. Hapus tanda baca/simbol (ganti spasi)
-    4. Hapus spasi berlebih
-    """
     if not text: return ""
-    text = text.lower() # Case folding
+    text = str(text).lower() # Case folding
     text = re.sub(r'http\S+', '', text)  # Hapus URL
     text = re.sub(r'[^a-zA-Z0-9\s]', ' ', text)  # Hapus tanda baca/karakter aneh
     text = re.sub(r'\s+', ' ', text).strip() # Normalisasi spasi
+
+    # --- STEP TAMBAHAN: NORMALISASI ---
+    # Memecah kalimat jadi kata, cek di kamus slang, lalu gabung lagi
+    text = ' '.join([key_norm.get(word, word) for word in text.split()])
+
     return text
 
 # ============================================================================
@@ -125,7 +179,6 @@ class IndoBERT_FineTune(nn.Module):
 cbd_bert_model = None
 cbd_crf_model = None
 try:
-    # Cek library sklearn-crfsuite
     try:
         import sklearn_crfsuite
     except ImportError:
@@ -138,17 +191,17 @@ try:
         cbd_bert_model.eval()
         with open(CBD_CRF_PATH, 'rb') as f:
             cbd_crf_model = pickle.load(f)
-        print("✓ Model Siap.")
+        print("✓ Model CBD Siap.")
     else:
         print("✗ Model CBD files missing.")
 except Exception as e:
     print(f"✗ Gagal load CBD: {e}")
 
 # ============================================================================
-# 4. LOGIKA UTAMA
+# 4. HELPER FUNCTIONS & LOGIC
 # ============================================================================
 
-# --- A. CBD (Clause Boundary Detection) ---
+# --- A. CBD Helpers ---
 def extract_bert_features_finetuned(tokens):
     encoded = tokenizer(
         tokens, is_split_into_words=True, return_tensors="pt",
@@ -160,7 +213,6 @@ def extract_bert_features_finetuned(tokens):
     return features
 
 def detect_clauses(text):
-    """Memecah paragraf menjadi klausa (sebelum preprocessing regex)"""
     if not cbd_bert_model or not cbd_crf_model:
         return re.split(r'[.,!?;]', text)
 
@@ -182,8 +234,7 @@ def detect_clauses(text):
 
         current_clause = []
         for tok, tag in zip(tokens, pred_tags):
-            if tok == "[UNK]": continue # Skip UNK
-            
+            if tok == "[UNK]": continue
             is_subword = tok.startswith("##")
             clean_tok = tok.replace("##", "")
 
@@ -206,115 +257,247 @@ def detect_clauses(text):
 # --- B. Sentiment ---
 def predict_sentiment_global(text):
     if not sentiment_model: return "netral"
-    # Preprocess minimal untuk BERT sentimen (jangan hilangkan tanda baca dulu, kadang ngaruh)
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=128).to(device)
+    # Normalisasi dulu sebelum prediksi sentimen
+    norm_text = clean_text_user(text)
+    inputs = tokenizer(norm_text, return_tensors="pt", truncation=True, padding=True, max_length=128).to(device)
     with torch.no_grad():
         outputs = sentiment_model(**inputs)
     pred_id = torch.argmax(outputs.logits, dim=1).item()
     return label_encoder.inverse_transform([pred_id])[0]
 
-# --- C. Extraction Helper Functions (User Logic) ---
-def find_original_word(text, word):
-    """Mencari kata asli dalam teks"""
-    for w in text.split():
-        if word in w.lower():
-            return w
-    return word
+# --- C. POS & Extraction Helpers ---
+
+def fix_broken_subwords(pos_results):
+    if not pos_results: return []
+    merged_tokens = []
+    
+    current_word = pos_results[0]['word']
+    current_label = pos_results[0]['entity_group']
+    current_end = pos_results[0]['end']
+
+    for i in range(1, len(pos_results)):
+        token = pos_results[i]
+        word = token['word']
+        label = token['entity_group']
+        start = token['start']
+        end = token['end']
+
+        if start == current_end:
+            clean_subword = word.replace('##', '') 
+            current_word += clean_subword
+            current_end = end
+        else:
+            merged_tokens.append({'word': current_word, 'entity_group': current_label})
+            current_word = word
+            current_label = label
+            current_end = end
+
+    merged_tokens.append({'word': current_word, 'entity_group': current_label})
+    return merged_tokens
 
 def merge_noun_phrases(tokens):
-    """Gabungkan kata benda (NNO) berurutan"""
     merged = []
-    skip = False
-    for i in range(len(tokens)):
-        if skip:
-            skip = False
-            continue
+    i = 0
+    while i < len(tokens):
         word, label = tokens[i]
-        if label == "NNO" and i+1 < len(tokens) and tokens[i+1][1] == "NNO":
-            merged.append((word + " " + tokens[i+1][0], "NNO"))
-            skip = True
+        if label == "NNO" and i + 1 < len(tokens) and tokens[i+1][1] == "NNO":
+            new_word = f"{word} {tokens[i+1][0]}"
+            merged.append((new_word, "NNO"))
+            i += 2 
         else:
             merged.append((word, label))
+            i += 1
     return merged
 
-# --- D. EKSTRAKSI UTAMA (User Algorithm) ---
+def map_model_label_to_user_label(label):
+    label = label.upper()
+    if label in ["NOUN", "PROPN"]: return "NNO"
+    if label == "ADJ": return "ADJ"
+    if label == "VERB": return "VBI"
+    return label
+
+def find_original_word(full_text, word):
+    try:
+        # Karena kita pakai normalisasi, full_text di sini bisa jadi beda (masih raw)
+        # Tapi kita coba cari dulu di raw text.
+        match = re.search(re.escape(word), full_text, re.IGNORECASE)
+        return match.group(0) if match else word
+    except:
+        return word
+
+# ==========================================
+# 5. CORE LOGIC (STRICT FILTER & SLANG HANDLING)
+# ==========================================
+
+# DAFTAR KATA "SAMPAH"
+# ==========================================
+# FINAL TUNING: ANTI-NOISE & STRICT PHRASING
+# ==========================================
+
+# 1. PERLUAS DAFTAR KATA SAMPAH (IGNORE WORDS)
+# Tambahkan kata-kata waktu, tempat, dan saran yang sering muncul di screenshot
+IGNORE_WORDS = {
+    # Kata Sambung / Tugas
+    "yang", "dan", "di", "ke", "dari", "ini", "itu", "ada", "adalah", 
+    "bagi", "untuk", "cuma", "hanya", "sekedar", "agak", "sangat", 
+    "tapi", "tetapi", "namun", "walaupun", "meskipun", "karena", "karna", "gara",
+    "saya", "kita", "kami", "anda", "mereka", "dia", "kalian", "kamu",
+    "sayangnya", "menuju", "depan", "belakang", "atas", "bawah", "samping",
+    "lainnya", "katanya", "mulai", "pas", "mana", "supaya", "sebagai",
+    "lah", "dong", "sih", "deh", "kok", "mah", "tuh", "pun", "kah",
+    "sendiri", "gini", "gitu", "segini", "begitu", "seperti", "kayak", "serta",
+    "kritik", "saran", "masukan", "halo", "kak", "min", "admin", "wkwk",
+    "tolong", "mohon", "harap", "coba", "bisa", "mau", "ingin", "pingin",
+    "biar", "agar", "kalau", "kalo", "jika", "jga", "juga", "memang", "emang",
+    "masalah", "hal", "kondisi", "keadaan", "situasi", "soal", "terkait",
+    
+    # KATA WAKTU (PENYEBAB UTAMA ERROR DI SCREENSHOT 3)
+    "sekarang", "tadi", "nanti", "kemarin", "besok", "lusa",
+    "hari", "minggu", "bulan", "tahun", "jam", "menit", "detik",
+    "saat", "waktu", "pas", "ketika", "sejak", "baru", "lama", "dahulu", "dulu",
+    
+    # KATA SARAN (PENYEBAB ERROR "PERLU PEMBENAHAN")
+    "perlu", "harus", "wajib", "mesti", "sebaiknya", "seharusnya", "akan"
+}
+
+# 2. LIST NEGASI SLANG
+SLANG_NEGATORS = {"ga", "gak", "tak", "enggak", "ora", "kagak", "nda", "ndak", "tdk"}
+
+# 3. SET KATA POSITIF (Manual define jika positive.txt belum sempurna)
+# Ini penting agar "kurang baik" tertangkap, tapi "baik" sendirian dibuang
+MANUAL_POSITIVE = {
+    "baik", "bagus", "indah", "cantik", "nyaman", "aman", "bersih", "ramah", 
+    "luas", "terawat", "rapi", "sejuk", "dingin", "puas", "enak", "sedap",
+    "mantap", "keren", "oke", "layak", "memadai", "profesional", "sigap"
+}
+
 def extract_complaints_user_algo(raw_text):
     if not pos_pipeline: return []
     
-    # 1. PREPROCESSING (Regex User)
-    clean_text = clean_text_user(raw_text)
-    if not clean_text: return []
+    # 1. NORMALISASI TEKS
+    norm_text = clean_text_user(raw_text)
 
     # 2. POS Tagging
     try:
-        hasil_pos = pos_pipeline(clean_text)
-    except:
+        hasil_pos_raw = pos_pipeline(norm_text)
+    except Exception:
         return []
 
-    tokens = [(t['word'].strip().lower(), t['entity_group']) for t in hasil_pos]
+    # 3. Fix Broken Subwords
+    hasil_pos = fix_broken_subwords(hasil_pos_raw)
 
-    # 3. Gabungkan Noun Phrases
+    tokens = []
+    for t in hasil_pos:
+        word = t['word'].strip().lower()
+        word = re.sub(r'[^a-z0-9]', '', word) 
+        
+        if not word: continue
+
+        # Normalisasi Negasi
+        if word in SLANG_NEGATORS: word = "tidak"
+
+        user_label = map_model_label_to_user_label(t['entity_group'])
+        
+        # Override Label
+        if word in NEGATIVE_KEYWORDS: user_label = "ADJ"
+        if word in POSITIVE_KEYWORDS or word in MANUAL_POSITIVE: user_label = "POS_ADJ" # Label khusus Positif
+        if word == "tidak": user_label = "NEG"
+        if word == "kurang": user_label = "NEG" # Perlakukan 'kurang' sama dengan 'tidak'
+        
+        tokens.append((word, user_label))
+
+    # 4. Gabungkan Noun Phrases
     tokens = merge_noun_phrases(tokens)
 
     keluhan_list = []
     
-    # 4. Logika Pencarian Pasangan (Distance <= 4)
+    # 5. LOGIKA PENCARIAN
     for i, (word, label) in enumerate(tokens):
+        
+        # HANYA PROSES KATA BENDA (NNO)
         if label == "NNO":
-            # Cari bentuk asli kata (sebelum lowercase/clean) untuk display yang bagus
-            # Kita cari di clean_text saja karena raw_text mungkin punya tanda baca yg bikin matching susah
-            original_nno = find_original_word(clean_text, word) 
+            original_nno = word 
             
-            closest_keluhan = None
-            min_distance = 999
+            # Skip jika NNO adalah kata yang di-ignore (waktu/tempat/saran)
+            if word in IGNORE_WORDS: continue
 
-            for j, (w2, l2) in enumerate(tokens):
-                if j != i:
-                    # Cek apakah token adalah Indikator Negatif
-                    is_neg_indicator = (l2 in ["ADJ", "NEG", "VBI", "VBT", "VBP"] or 
-                                        w2 in NEGATIVE_KEYWORDS or 
-                                        w2 == "tidak")
+            closest_keluhan = None
+            
+            # === STRATEGI A: CARI KE KANAN (Noun + ... + Adj) ===
+            # Contoh: "Pelayanan kurang baik", "Toilet kotor"
+            for j in range(i + 1, min(i + 6, len(tokens))):
+                w2, l2 = tokens[j]
+                
+                if w2 in IGNORE_WORDS: continue 
+                
+                prev_w = tokens[j-1][0] if j > 0 else ""
+                
+                # Cek Negator (tidak/kurang/belum)
+                has_negator = prev_w in ["tidak", "kurang", "belum", "bukan", "jangan"]
+                
+                # KASUS 1: Noun + Negator + Kata Apapun (Kecuali Ignore)
+                # Contoh: "Tiket tidak sepadan", "Air tidak ada"
+                if has_negator:
+                    if w2 not in IGNORE_WORDS:
+                        # Tangkap paket lengkap: "Pelayanan kurang baik"
+                        closest_keluhan = f"{original_nno} {prev_w} {w2}"
+                        break
+
+                # KASUS 2: Noun + Kata Negatif Langsung
+                # Contoh: "Toilet kotor", "Akses susah"
+                # Syarat: Label ADJ/NEG ATAU ada di list negatif, DAN BUKAN kata positif
+                is_negative_context = (w2 in NEGATIVE_KEYWORDS) or (l2 in ["ADJ", "NEG"] and l2 != "POS_ADJ" and w2 not in MANUAL_POSITIVE)
+                
+                if is_negative_context:
+                    if w2 in STOP_KELUHAN: continue
+                    closest_keluhan = f"{original_nno} {w2}"
+                    break 
+
+            # === STRATEGI B: CARI KE KIRI (Adj + ... + Noun) ===
+            # Contoh: "Kurang nyaman suasananya"
+            if not closest_keluhan: 
+                for j in range(i - 1, max(i - 6, -1), -1):
+                    w2, l2 = tokens[j]
                     
-                    if is_neg_indicator:
+                    if w2 in IGNORE_WORDS: continue
+                    
+                    # Cek Modifier di sebelah kiri kata sifatnya
+                    # Contoh: [kurang] [nyaman] [tempat] -> prev_modifier adalah 'kurang'
+                    prev_modifier = tokens[j-1][0] if j > 0 else ""
+                    has_negator = prev_modifier in ["tidak", "kurang", "belum", "bukan"]
+
+                    # KASUS 1: Negator + Kata Positif + Noun (DIBALIK)
+                    # Contoh: "Kurang nyaman tempatnya" -> "tempatnya kurang nyaman"
+                    if (w2 in MANUAL_POSITIVE or l2 == "POS_ADJ") and has_negator:
+                         closest_keluhan = f"{original_nno} {prev_modifier} {w2}"
+                         break
+
+                    # KASUS 2: Kata Negatif + Noun (DIBALIK)
+                    # Contoh: "Rusak jalannya" -> "jalannya rusak"
+                    is_negative_context = (w2 in NEGATIVE_KEYWORDS) or (l2 in ["ADJ", "NEG"] and l2 != "POS_ADJ" and w2 not in MANUAL_POSITIVE)
+                    
+                    if is_negative_context:
                         if w2 in STOP_KELUHAN: continue
                         
-                        distance = abs(j - i)
-                        if distance <= 4 and distance < min_distance:
-                            min_distance = distance
-                            
-                            # Logika Khusus "Tidak"
-                            if w2 == "tidak":
-                                if j+1 < len(tokens):
-                                    next_word = tokens[j+1][0]
-                                    closest_keluhan = f"{original_nno} tidak {next_word}"
-                                else:
-                                    closest_keluhan = f"{original_nno} tidak jelas"
-                            
-                            # Logika "Tidak" di belakang kata sifat (misal: "bersih tidak") -> jarang, 
-                            # tapi logika di script user: j-1 >= 0 and tokens[j-1][0] == "tidak"
-                            elif j-1 >= 0 and tokens[j-1][0] == "tidak":
-                                closest_keluhan = f"{original_nno} tidak {w2}"
-                            
-                            else:
-                                closest_keluhan = f"{original_nno} {w2}"
+                        if has_negator:
+                            closest_keluhan = f"{original_nno} {prev_modifier} {w2}"
+                        else:
+                            closest_keluhan = f"{original_nno} {w2}"
+                        break
 
-            # Fallback
-            if not closest_keluhan:
-                closest_keluhan = f"{original_nno} bermasalah"
-            
-            keluhan_list.append(closest_keluhan)
+            if closest_keluhan:
+                keluhan_list.append(closest_keluhan)
 
-    return list(dict.fromkeys(keluhan_list)) # Hapus duplikat
+    return list(dict.fromkeys(keluhan_list))
+
 
 # ============================================================================
-# 5. FLASK ROUTES
+# 6. FLASK ROUTES
 # ============================================================================
 app = Flask(__name__)
 
 @app.route('/')
-def home(): return "API Ekstraksi Keluhan (New Algorithm + Regex Clean)."
-@app.route('/ui')
-def ui(): return render_template("new.html")
+def home(): return render_template("index.html")
 
 @app.route('/wisata_list', methods=['GET'])
 def wisata_list():
@@ -343,11 +526,11 @@ def analisis_wisata():
     all_nno_words = []
     
     for review in reviews:
-        # 1. Pecah Klausa (Menggunakan Teks Asli agar tanda baca terbaca)
+        # 1. Pecah Klausa
         clauses = detect_clauses(review)
         
         for clause in clauses:
-            # 2. Cek Sentimen
+            # 2. Cek Sentimen (gunakan raw, didalam fungsi sentimen ada normalisasi)
             clause_sent = predict_sentiment_global(clause)
             
             if clause_sent.lower() == 'positif': count_pos += 1
@@ -356,7 +539,6 @@ def analisis_wisata():
             
             # 3. Ekstraksi (Hanya Negatif/Netral)
             if clause_sent.lower() in ['negatif', 'netral']:
-                # Ekstraksi menggunakan algoritma baru + preprocess regex
                 extracted_list = extract_complaints_user_algo(clause)
                 
                 if extracted_list:
