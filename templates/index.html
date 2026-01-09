@@ -417,7 +417,7 @@
                 
                 <div class="custom-dropdown" id="dropdownWrapper">
                     <div class="dropdown-selected" onclick="toggleDropdown()">
-                        <span id="selected-text">Pilih Destinasi Wisata . . .</span>
+                        <span id="selected-text">Pilih Tempat Wisata . . .</span>
                         <span class="arrow-icon">▼</span>
                     </div>
                     
@@ -426,10 +426,10 @@
                     </div>
                 </div>
 
-                <button class="btn-analysis" id="btnAnalyze" disabled>Analysis</button>
+                <button class="btn-analysis" id="btnAnalyze" disabled>Analisis</button>
             </div>
 
-            <p class="jumlah-komentar" id="statsDisplay">Silakan pilih wisata dan klik tombol Analysis</p>
+            <p class="jumlah-komentar" id="statsDisplay">Silakan pilih wisata dan klik tombol Analisis</p>
 
             <div class="table-container">
                 <table>
@@ -537,7 +537,7 @@
                 <tr>
                     <td colspan="2" style="background:white; text-align:center; padding: 60px;">
                         <div class="spinner"></div>
-                        <p style="color:#666;">Sedang menganalisis ulasan <b>${selectedWisata}</b>...</p>
+                        <p style="color:#666;">Sedang menganalisis komentar <b>${selectedWisata}</b>...</p>
                     </td>
                 </tr>
             `;
@@ -568,7 +568,7 @@
         function renderTable(data) {
             // 1. Update Statistik
             statsDisplay.innerHTML = `
-                Total Ulasan: <b>${data.total}</b> &nbsp;|&nbsp; 
+                Total Komentar: <b>${data.total}</b> &nbsp;|&nbsp; 
                 Negatif: <b style="color:#E02424">${data.negatif}</b>
             `;
 
